@@ -1,14 +1,10 @@
-import dotenv from 'dotenv';
-
-dotenv.config();
-
 export type HardcodedUser = {
   username: string;
   password: string;
 };
 
-const USERS: HardcodedUser[] = process.env.USERS
-  ? JSON.parse(process.env.USERS)
+const USERS: HardcodedUser[] = import.meta.env.VITE_USERS
+  ? JSON.parse(import.meta.env.VITE_USERS)
   : [];
 
 export function validateCredentials(username: string, password: string): boolean {
