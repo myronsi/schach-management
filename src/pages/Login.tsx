@@ -11,8 +11,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Eye, EyeOff, User, Lock } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
-import { validateCredentials } from '@/lib/users';
-
 const loginSchema = z.object({
   username: z.string().min(1, 'Benutzername ist erforderlich'),
   password: z.string().min(1, 'Passwort ist erforderlich'),
@@ -54,23 +52,23 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setIsLoading(true);
     setLoginError('');
 
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    if (validateCredentials(data.username, data.password)) {
-      login(data.username, data.password);
-      
-      reset();
-      
-      if (onLogin) {
-        onLogin();
+    try {
+      const result = await login(data.username, data.password);
+      if (result && result.success) {
+        reset();
+        if (onLogin) {
+          onLogin();
+        } else {
+          navigate('/dashboard');
+        }
       } else {
-        navigate('/dashboard');
+        setLoginError(result?.message || 'Ungültiger Benutzername oder Passwort');
       }
-    } else {
-      setLoginError('Ungültiger Benutzername oder Passwort');
+    } catch (err) {
+      setLoginError('Netzwerkfehler');
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
   };
 
   const togglePasswordVisibility = () => {
@@ -157,15 +155,16 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 export default Login;
 
 export const isUserLoggedIn = (): boolean => {
-  return localStorage.getItem('loggedInUser') !== null;
+  return localStorage.getItem('auth_username') !== null && localStorage.getItem('auth_session_id') !== null;
 };
 
 export const getLoggedInUser = (): string | null => {
-  return localStorage.getItem('loggedInUser');
+  return localStorage.getItem('auth_username');
 };
 
 export const logoutUser = (): void => {
-  localStorage.removeItem('loggedInUser');
+  localStorage.removeItem('auth_username');
+  localStorage.removeItem('auth_session_id');
   localStorage.removeItem('loginTimestamp');
 };
 
