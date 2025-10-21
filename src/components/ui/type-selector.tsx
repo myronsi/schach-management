@@ -9,8 +9,9 @@ import { cn } from "@/lib/utils"
 const eventTypes = [
   { value: "training", label: "Training" },
   { value: "tournament", label: "Turnier" },
-  { value: "meeting", label: "Meeting" },
-  { value: "special", label: "Spezial" }
+  { value: "meeting", label: "Versammlung" },
+  { value: "holiday", label: "Ferien" },
+  { value: "special", label: "Besondere" }
 ]
 
 interface TypeSelectorProps {

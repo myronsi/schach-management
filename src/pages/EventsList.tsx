@@ -203,6 +203,7 @@ const EventsList: React.FC = () => {
       case 'training': return 'bg-blue-50 border-blue-200';
       case 'tournament': return 'bg-green-50 border-green-200';
       case 'meeting': return 'bg-yellow-50 border-yellow-200';
+      case 'holiday': return 'bg-red-50 border-red-200';
       case 'special': return 'bg-purple-50 border-purple-200';
       default: return 'bg-gray-50 border-gray-200';
     }

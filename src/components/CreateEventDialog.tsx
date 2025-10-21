@@ -123,9 +123,10 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
   const isFormValid = () => {
     const hasTitle = watchTitle && watchTitle.trim().length > 0;
     const hasDate = selectedDate !== undefined;
+    const hasType = selectedType && selectedType.trim().length > 0;
     const hasValidRepeatCount = !showRepeatCount || (watchRepeatCount && watchRepeatCount > 0);
-    
-    return hasTitle && hasDate && hasValidRepeatCount;
+
+    return hasTitle && hasDate && hasType && hasValidRepeatCount;
   };
 
   const resetForm = () => {
@@ -345,6 +346,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
           id="type"
           value={selectedType}
           onChange={handleTypeChange}
+          required
         />
         
         <div className="space-y-2">
