@@ -13,7 +13,7 @@ import { TimeInput } from '@/components/ui/time-input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
-const API = 'https://viserix.com/events.php';
+const API = 'https://viserix.com/data-management.php/calendar';
 
 interface Event {
   id: string;
@@ -115,10 +115,10 @@ const EventsListEmbedded = forwardRef<EventsListRef, {}>((_props, ref) => {
 
   const loadEvents = async () => {
     try {
-      const res = await fetch(`${API}?action=list`);
+      const res = await fetch(API);
       if (res.ok) {
         const data = await res.json();
-        const allEvents = data.events || [];
+        const allEvents = Array.isArray(data) ? data : (data.events || []);
         setEvents(allEvents);
         setFilteredEvents(filterEvents(allEvents, currentFilter));
       }
@@ -176,12 +176,12 @@ const EventsListEmbedded = forwardRef<EventsListRef, {}>((_props, ref) => {
     if (!editingId) return;
     
     try {
-      const res = await fetch(`${API}?action=edit`, {
-        method: 'POST',
+      const res = await fetch(`${API}/${encodeURIComponent(editingId)}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: editingId, ...editForm }),
+        body: JSON.stringify(editForm),
       });
-      
+
       if (res.ok) {
         await loadEvents();
         setEditingId(null);
@@ -202,12 +202,10 @@ const EventsListEmbedded = forwardRef<EventsListRef, {}>((_props, ref) => {
       `Möchten Sie das Ereignis "${title}" wirklich löschen?`,
       async () => {
         try {
-          const res = await fetch(`${API}?action=delete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id }),
+          const res = await fetch(`${API}/${encodeURIComponent(id)}`, {
+            method: 'DELETE'
           });
-          
+
           if (res.ok) {
             await loadEvents();
             showAlert('Erfolg', 'Ereignis wurde erfolgreich gelöscht', 'success');

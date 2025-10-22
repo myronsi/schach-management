@@ -23,7 +23,7 @@ type FormData = {
   repeatCount?: number;
 };
 
-const API = 'https://viserix.com/events.php';
+const API = 'https://viserix.com/data-management.php/calendar';
 
 interface CreateEventDialogProps {
   onSuccess?: () => void;
@@ -235,14 +235,27 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
       }
 
       for (const event of eventsToCreate) {
-        const res = await fetch(`${API}?action=create`, {
+        // Ensure the event has an id (server expects id). Generate a UUID v4 if missing.
+        const generateUUIDv4 = () => {
+          // RFC4122 version 4 compliant UUID generator (browser-safe, no deps)
+          return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = (Math.random() * 16) | 0;
+            const v = c === 'x' ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+          });
+        };
+
+        const id = (event as any).id || generateUUIDv4();
+        const payload = { ...event, id };
+
+        const res = await fetch(`${API}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(event),
+          body: JSON.stringify(payload),
         });
-        
+
         if (!res.ok) {
-          const body = await res.json();
+          const body = await res.json().catch(() => ({}));
           throw new Error(body.error || res.statusText);
         }
       }

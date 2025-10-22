@@ -1,8 +1,19 @@
 <?php
 header('Content-Type: application/json');
+// Basic CORS - allow any origin and common methods/headers
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+// Allow common headers and reflect requested headers for flexibility
+$requestedHeaders = isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']) ? $_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS'] : 'Content-Type, Authorization';
+header('Access-Control-Allow-Headers: ' . $requestedHeaders);
+
+// Handle preflight OPTIONS request and exit early
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    // Return 200 with the CORS headers above
+    http_response_code(200);
+    echo json_encode(['ok' => true]);
+    exit;
+}
 
 // Load .env file
 $env = parse_ini_file('.env');
@@ -21,7 +32,11 @@ try {
     ]);
 } catch (PDOException $e) {
     http_response_code(500);
-    echo json_encode(['error' => 'Database connection failed: ' . $e->getMessage()]);
+    echo json_encode([
+        'error' => 'Database connection failed',
+        'message' => $e->getMessage(),
+        'dsn' => $dsn // For debugging, remove in production
+    ]);
     exit;
 }
 
@@ -36,13 +51,22 @@ function sendResponse($data, $status = 200) {
 $method = $_SERVER['REQUEST_METHOD'];
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $pathParts = explode('/', trim($path, '/'));
-$table = isset($pathParts[0]) ? $pathParts[0] : '';
-$id = isset($pathParts[1]) ? $pathParts[1] : null;
+
+// Adjust table extraction to account for script name
+$scriptName = 'data-management.php';
+$tableIndex = array_search($scriptName, $pathParts);
+if ($tableIndex !== false && isset($pathParts[$tableIndex + 1])) {
+    $table = $pathParts[$tableIndex + 1];
+    $id = isset($pathParts[$tableIndex + 2]) ? $pathParts[$tableIndex + 2] : null;
+} else {
+    $table = '';
+    $id = null;
+}
 
 // Validate table
 $validTables = ['calendar', 'history', 'media', 'news', 'teams', 'tournaments'];
 if (!in_array($table, $validTables)) {
-    sendResponse(['error' => 'Invalid table'], 400);
+    sendResponse(['error' => 'Invalid or missing table name'], 400);
 }
 
 // Handle requests
