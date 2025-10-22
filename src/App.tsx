@@ -5,14 +5,14 @@ import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { useRef, useState } from "react";
 import Login from "./pages/Login";
 import Navbar from "./components/ui/navbar";
-import EventsList from "./pages/EventsList";
-import EventsListEmbedded from "./pages/EventsListEmbedded";
-import type { EventsListRef } from "./pages/EventsListEmbedded";
+import EventsList from "./pages/events/EventsList";
+import EventsListEmbedded from "./pages/events/EventsListEmbedded";
+import type { EventsListRef } from "./pages/events/EventsListEmbedded";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./components/ui/dialog";
 import { Button } from "./components/ui/button";
-import CreateEventDialog from "./components/CreateEventDialog";
-import EditEventDialog from "./components/EditEventDialog";
-import DeleteEventDialog from "./components/DeleteEventDialog";
+import CreateEventDialog from "./components/events/CreateEventDialog";
+import EditEventDialog from "./components/events/EditEventDialog";
+import DeleteEventDialog from "./components/events/DeleteEventDialog";
 
 const queryClient = new QueryClient();
 

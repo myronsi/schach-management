@@ -7,7 +7,7 @@ interface NavbarProps {
   title?: string;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ title = "Schach-Events" }) => {
+const Navbar: React.FC<NavbarProps> = ({ title = "Schach-Management" }) => {
   const { username, logout, isAuthenticated } = useAuth();
 
   if (!isAuthenticated) {
