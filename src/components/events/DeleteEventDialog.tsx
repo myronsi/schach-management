@@ -27,7 +27,7 @@ interface Event {
   type?: string;
 }
 
-const API = 'https://viserix.com/data-management.php/calendar';
+const API = 'https://viserix.com/events.php';
 
 const deleteModeOptions = [
   { value: "upcomingTitle", label: "Alle zukünftigen Ereignisse mit Titel" },
@@ -111,10 +111,10 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
   useEffect(() => {
     const loadEvents = async () => {
       try {
-        const res = await fetch(API);
+        const res = await fetch(`${API}?action=list`);
         if (res.ok) {
           const data = await res.json();
-          setEvents(Array.isArray(data) ? data : (data.events || []));
+          setEvents(data.events || []);
         }
       } catch (err) {
         console.error('Fehler beim Laden der Ereignisse:', err);
@@ -178,41 +178,28 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
           if (formData.title) requestBody.title = formData.title;
           if (formData.date) requestBody.date = formData.date;
           
-          // Determine which event IDs should be deleted
-          const toDeleteIds: string[] = [];
-
-          if (requestBody.mode === 'upcomingTitle' && requestBody.title) {
-            const now = new Date();
-            for (const ev of events) {
-              if (ev.title === requestBody.title) {
-                const evDate = new Date(ev.date);
-                if (isNaN(evDate.getTime()) || evDate >= now) {
-                  if (ev.id) toDeleteIds.push(ev.id);
-                }
-              }
-            }
-          } else if (requestBody.mode === 'allOnDay' && requestBody.date) {
-            for (const ev of events) {
-              if (ev.date === requestBody.date && ev.id) toDeleteIds.push(ev.id);
-            }
+          const res = await fetch(`${API}?action=delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          });
+          const result = await res.json();
+          if (res.ok) {
+            setResponse(result);
+            setStatus('success');
+            showAlert('Erfolg', `${result.deleted} Ereignis(se) erfolgreich gelöscht`, 'success');
+            
+            if (onSuccess) onSuccess();
+            
+            setTimeout(() => {
+              if (onClose) onClose();
+            }, 1500);
+            
+          } else {
+            setStatus('error');
+            setResponse(result);
+            showAlert('Fehler', result.error || 'Fehler beim Löschen', 'error');
           }
-
-          const deleteResults: any[] = [];
-          for (const id of toDeleteIds) {
-            const res = await fetch(`${API}/${encodeURIComponent(id)}`, {
-              method: 'DELETE'
-            });
-            const r = await res.json().catch(() => ({}));
-            deleteResults.push({ id, ok: res.ok, body: r });
-          }
-
-          const deletedCount = deleteResults.filter(d => d.ok).length;
-          setResponse({ deleted: deletedCount, results: deleteResults });
-          setStatus('success');
-          showAlert('Erfolg', `${deletedCount} Ereignis(se) erfolgreich gelöscht`, 'success');
-
-          if (onSuccess) onSuccess();
-          setTimeout(() => { if (onClose) onClose(); }, 1500);
         } catch (err) {
           setStatus('error');
           setResponse({ error: 'Netzwerkfehler' });

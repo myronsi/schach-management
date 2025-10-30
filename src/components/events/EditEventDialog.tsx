@@ -28,7 +28,7 @@ interface Event {
   type?: string;
 }
 
-const API = 'https://viserix.com/data-management.php/calendar';
+const API = 'https://viserix.com/events.php';
 
 interface EditEventDialogProps {
   onSuccess?: () => void;
@@ -50,11 +50,10 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
   useEffect(() => {
     const loadEvents = async () => {
       try {
-        const res = await fetch(API);
+        const res = await fetch(`${API}?action=list`);
         if (res.ok) {
           const data = await res.json();
-          // data-management.php returns array of records for the table
-          setEvents(Array.isArray(data) ? data : (data.events || []));
+          setEvents(data.events || []);
         }
       } catch (err) {
         console.error('Fehler beim Laden der Ereignisse:', err);
@@ -99,62 +98,28 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
       if (data.description) updates.description = data.description;
       if (selectedType) updates.type = selectedType;
 
-  // Find events matching the selected title and only update upcoming/future events.
-  // Use local date parsing to avoid timezone shifts from toISOString.
-  const parseDateLocal = (dateStr: string) => {
-    if (!dateStr) return null;
-    const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (m) {
-      const y = Number(m[1]);
-      const mo = Number(m[2]) - 1;
-      const d = Number(m[3]);
-      const dt = new Date(y, mo, d);
-      dt.setHours(0,0,0,0);
-      return dt;
-    }
-    const dt = new Date(dateStr);
-    if (isNaN(dt.getTime())) return null;
-    dt.setHours(0,0,0,0);
-    return dt;
-  };
-
-  const today = new Date();
-  today.setHours(0,0,0,0);
-
-  const matching = events.filter(e => {
-    if (e.title !== data.title) return false;
-    const evDate = parseDateLocal(e.date);
-    if (!evDate) return false;
-    return evDate.getTime() >= today.getTime();
-  });
-      if (matching.length === 0) {
-        setStatus('error');
-        setResponse({ error: 'Keine passenden Ereignisse gefunden' });
-        setIsSubmitting(false);
-        return;
-      }
-
-      try {
-        const updateResults: any[] = [];
-        for (const ev of matching) {
-          const id = ev.id;
-          if (!id) continue;
-          const res = await fetch(`${API}/${encodeURIComponent(id)}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updates),
-          });
-          const r = await res.json().catch(() => ({}));
-          updateResults.push({ id, ok: res.ok, body: r });
-        }
-
-        setResponse({ results: updateResults });
+      const res = await fetch(`${API}?action=editByTitle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          title: data.title,
+          updates: updates
+        }),
+      });
+      const result = await res.json();
+      if (res.ok) {
+        setResponse(result);
         setStatus('success');
+        
         if (onSuccess) onSuccess();
-        setTimeout(() => { if (onClose) onClose(); }, 1500);
-      } catch (err) {
+        
+        setTimeout(() => {
+          if (onClose) onClose();
+        }, 1500);
+        
+      } else {
         setStatus('error');
-        setResponse({ error: 'Netzwerkfehler' });
+        setResponse(result);
       }
     } catch (err) {
       setStatus('error');
