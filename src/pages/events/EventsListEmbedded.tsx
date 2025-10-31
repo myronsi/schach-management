@@ -13,7 +13,7 @@ import { TimeInput } from '@/components/ui/time-input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
-const API = 'https://viserix.com/events.php';
+const API = 'https://sc-laufenburg.de/api/events.php';
 
 interface Event {
   id: string;

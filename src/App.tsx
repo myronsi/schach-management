@@ -7,18 +7,26 @@ import Login from "./pages/Login";
 import Navbar from "./components/ui/navbar";
 import EventsList from "./pages/events/EventsList";
 import EventsListEmbedded from "./pages/events/EventsListEmbedded";
+import NewsAdmin from "./pages/news/NewsAdmin";
 import type { EventsListRef } from "./pages/events/EventsListEmbedded";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./components/ui/dialog";
 import { Button } from "./components/ui/button";
 import CreateEventDialog from "./components/events/CreateEventDialog";
 import EditEventDialog from "./components/events/EditEventDialog";
 import DeleteEventDialog from "./components/events/DeleteEventDialog";
+import { Toaster } from "./components/ui/toaster";
 
 const queryClient = new QueryClient();
 
 // Protected Route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
+  const { isAuthChecked } = useAuth();
+
+  // While we're still checking the saved session, don't redirect — render
+  // nothing (prevents flashing to /login when the auth check is async).
+  if (!isAuthChecked) return null;
+
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
 };
 
@@ -115,6 +123,7 @@ const AppContent = () => {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/events" element={<ProtectedRoute><EventsList /></ProtectedRoute>} />
+        <Route path="/news" element={<ProtectedRoute><NewsAdmin /></ProtectedRoute>} />
         <Route 
           path="/dashboard" 
           element={
@@ -135,6 +144,7 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <AppContent />
+          <Toaster />
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

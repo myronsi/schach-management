@@ -13,7 +13,7 @@ import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const API = 'https://viserix.com/events.php';
+const API = 'https://sc-laufenburg.de/api/events.php';
 
 interface Event {
   id: string;

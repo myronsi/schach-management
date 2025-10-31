@@ -1,4 +1,8 @@
 <?php
+/**
+ * Simple Calendar Events Handler
+ * Single file that handles all CRUD operations
+ */
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
@@ -9,6 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
 
+// Load environment variables from .env if exists
 if (file_exists('.env')) {
     $lines = file('.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
     foreach ($lines as $line) {
@@ -30,6 +35,7 @@ function loadEvents($filename) {
 }
 
 function saveEvents($events, $filename) {
+    // Add IDs to events that don't have them
     foreach ($events as &$event) {
         if (!isset($event['id'])) {
             $event['id'] = uniqid();
@@ -43,6 +49,7 @@ function saveEvents($events, $filename) {
     $json = json_encode($events, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     file_put_contents($filename, $json);
     
+    // Simple FTP upload using cURL if credentials exist
     uploadToFTP($filename);
     
     return true;
@@ -88,6 +95,7 @@ function uploadToFTP($filename) {
     return $result;
 }
 
+// Get operation type
 $action = $_GET['action'] ?? $_POST['action'] ?? 'list';
 $input = json_decode(file_get_contents('php://input'), true) ?: [];
 
@@ -102,8 +110,10 @@ switch ($action) {
         $events = loadEvents($filename);
         
         if (isset($input[0])) {
+            // Array of events
             $events = array_merge($events, $input);
         } else {
+            // Single event
             $events[] = $input;
         }
         
@@ -116,6 +126,7 @@ switch ($action) {
         $eventId = $input['id'] ?? '';
         $updates = $input['updates'] ?? $input;
         
+        // Remove non-field keys from updates
         unset($updates['id'], $updates['action']);
         
         foreach ($events as &$event) {
@@ -158,6 +169,7 @@ switch ($action) {
         $eventId = $input['id'] ?? '';
         
         if ($eventId) {
+            // Delete single event by ID
             $originalCount = count($events);
             $events = array_filter($events, function($event) use ($eventId) {
                 return $event['id'] !== $eventId;
@@ -170,6 +182,7 @@ switch ($action) {
             break;
         }
         
+        // Bulk delete operations
         $mode = $input['mode'] ?? '';
         $originalCount = count($events);
         

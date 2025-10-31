@@ -7,6 +7,9 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<any>;
   logout: () => void;
   checkAuthStatus: () => Promise<void>;
+  // whether the initial auth check has completed (prevents redirects while
+  // the app is still verifying a saved session)
+  isAuthChecked: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -18,13 +21,14 @@ interface AuthProviderProps {
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
 
   const checkAuthStatus = async () => {
     const savedUsername = localStorage.getItem('auth_username');
     const savedSession = localStorage.getItem('auth_session_id');
     if (savedUsername && savedSession) {
       try {
-        const res = await fetch('https://viserix.com/auth.php', {
+        const res = await fetch('https://sc-laufenburg.de/api/auth.php', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'check', username: savedUsername, session_id: savedSession })
@@ -34,6 +38,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             if (data.status && data.status === 'admin') {
               setIsAuthenticated(true);
               setUsername(savedUsername);
+              setIsAuthChecked(true);
               return;
             } else {
               localStorage.removeItem('auth_username');
@@ -41,6 +46,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
               localStorage.removeItem('loginTimestamp');
               setIsAuthenticated(false);
               setUsername(null);
+              setIsAuthChecked(true);
               return;
             }
           }
@@ -48,16 +54,30 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
     }
 
-    localStorage.removeItem('auth_username');
-    localStorage.removeItem('auth_session_id');
-    localStorage.removeItem('loginTimestamp');
-    setIsAuthenticated(false);
-    setUsername(null);
+    // If we reach here it means either there was no saved session or the
+    // server check did not explicitly return a non-admin response.
+    // Do NOT aggressively clear local auth on network errors (CORS, offline,
+    // temporary failures). Only clear when the server explicitly indicates
+    // the session is invalid or not authorized. If a saved session exists
+    // but we couldn't verify it due to a network error, keep the local
+    // values so the user stays logged in in the SPA. If there was no saved
+    // session, ensure auth is false.
+    const stillHasSaved = !!(localStorage.getItem('auth_username') && localStorage.getItem('auth_session_id'));
+    if (!stillHasSaved) {
+      localStorage.removeItem('auth_username');
+      localStorage.removeItem('auth_session_id');
+      localStorage.removeItem('loginTimestamp');
+      setIsAuthenticated(false);
+      setUsername(null);
+    }
+
+    // mark that the initial check finished
+    setIsAuthChecked(true);
   };
 
   const login = async (username: string, password: string) => {
     try {
-      const res = await fetch('https://viserix.com/auth.php', {
+      const res = await fetch('https://sc-laufenburg.de/api/auth.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -102,6 +122,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       login,
       logout,
       checkAuthStatus
+      , isAuthChecked
     }}>
       {children}
     </AuthContext.Provider>

@@ -27,7 +27,7 @@ interface Event {
   type?: string;
 }
 
-const API = 'https://viserix.com/events.php';
+const API = 'https://sc-laufenburg.de/api/events.php';
 
 const deleteModeOptions = [
   { value: "upcomingTitle", label: "Alle zukünftigen Ereignisse mit Titel" },
