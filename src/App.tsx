@@ -8,6 +8,8 @@ import Navbar from "./components/ui/navbar";
 import EventsList from "./pages/events/EventsList";
 import EventsListEmbedded from "./pages/events/EventsListEmbedded";
 import NewsAdmin from "./pages/news/NewsAdmin";
+import HistoryAdmin from "./pages/history/HistoryAdmin";
+import TeamsAdmin from "./pages/teams/TeamsAdmin";
 import type { EventsListRef } from "./pages/events/EventsListEmbedded";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./components/ui/dialog";
 import { Button } from "./components/ui/button";
@@ -18,19 +20,14 @@ import { Toaster } from "./components/ui/toaster";
 
 const queryClient = new QueryClient();
 
-// Protected Route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
   const { isAuthChecked } = useAuth();
-
-  // While we're still checking the saved session, don't redirect — render
-  // nothing (prevents flashing to /login when the auth check is async).
   if (!isAuthChecked) return null;
 
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
 };
 
-// Dashboard component (Platzhalter)
 const Dashboard = () => {
   const { username } = useAuth();
   const eventsListRef = useRef<EventsListRef>(null);
@@ -124,6 +121,8 @@ const AppContent = () => {
         <Route path="/login" element={<Login />} />
         <Route path="/events" element={<ProtectedRoute><EventsList /></ProtectedRoute>} />
         <Route path="/news" element={<ProtectedRoute><NewsAdmin /></ProtectedRoute>} />
+        <Route path="/history" element={<ProtectedRoute><HistoryAdmin /></ProtectedRoute>} />
+        <Route path="/teams" element={<ProtectedRoute><TeamsAdmin /></ProtectedRoute>} />
         <Route 
           path="/dashboard" 
           element={
