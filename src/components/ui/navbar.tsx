@@ -15,8 +15,8 @@ const Navbar: React.FC<NavbarProps> = ({ title = "Schach-Management" }) => {
     return null;
   }
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     // Optionally redirect to login page
     window.location.href = '/login';
   };

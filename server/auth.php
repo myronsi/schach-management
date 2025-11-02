@@ -31,9 +31,12 @@ $username = $input['username'] ?? $_POST['username'] ?? '';
 $pass = $input['password'] ?? $_POST['password'] ?? '';
 $action = $input['action'] ?? $_POST['action'] ?? '';
 
-// For normal login actions we require username+password. Skip this check for
-// 'check' (session validation) and 'set_password' (setting a new password).
-if ($action !== 'check' && $action !== 'set_password') {
+$client_ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
+if (strpos($client_ip, ',') !== false) {
+    $client_ip = trim(explode(',', $client_ip)[0]);
+}
+
+if ($action !== 'check' && $action !== 'set_password' && $action !== 'logout') {
     if (!$username || !$pass) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'Bitte Benutzername und Passwort angeben.']);
@@ -54,18 +57,67 @@ try {
             echo json_encode(['success' => false, 'message' => 'Benutzername und session_id erforderlich']);
             exit;
         }
-        $stmt = $pdo->prepare('SELECT username, status, session_id FROM users WHERE username = ? AND session_id = ? LIMIT 1');
+        
+        $stmt = $pdo->prepare('SELECT username, status, session_id, session_ip FROM users WHERE username = ? AND session_id = ? LIMIT 1');
         $stmt->execute([$username, $session_id]);
         $row = $stmt->fetch();
+        
         if ($row) {
-            echo json_encode(['success' => true, 'message' => 'Session gültig', 'status' => $row['status']]);
+            $allowedIps = $row['session_ip'] ? explode(',', $row['session_ip']) : [];
+            $allowedIps = array_map('trim', $allowedIps);
+            
+            if (in_array($client_ip, $allowedIps)) {
+                echo json_encode(['success' => true, 'message' => 'Session gültig', 'status' => $row['status']]);
+            } else {
+                $allowedIps[] = $client_ip;
+                $allowedIps = array_slice($allowedIps, -5);
+                $newIpList = implode(',', $allowedIps);
+                
+                $updateIp = $pdo->prepare('UPDATE users SET session_ip = ? WHERE username = ? AND session_id = ?');
+                $updateIp->execute([$newIpList, $username, $session_id]);
+                
+                echo json_encode(['success' => true, 'message' => 'Session gültig', 'status' => $row['status']]);
+            }
         } else {
             echo json_encode(['success' => false, 'message' => 'Ungültige Session']);
         }
         exit;
     }
 
-    // Allow clients to set a new password for the user (after initial login when password_status = 'unchanged')
+    if ($action === 'logout') {
+        $session_id = $input['session_id'] ?? $_POST['session_id'] ?? '';
+        if (!$username || !$session_id) {
+            echo json_encode(['success' => false, 'message' => 'Benutzername und session_id erforderlich']);
+            exit;
+        }
+        
+        $stmt = $pdo->prepare('SELECT session_ip FROM users WHERE username = ? AND session_id = ? LIMIT 1');
+        $stmt->execute([$username, $session_id]);
+        $row = $stmt->fetch();
+        
+        if ($row) {
+            $allowedIps = $row['session_ip'] ? explode(',', $row['session_ip']) : [];
+            $allowedIps = array_map('trim', $allowedIps);
+            
+            $allowedIps = array_filter($allowedIps, function($ip) use ($client_ip) {
+                return $ip !== $client_ip;
+            });
+            
+            $newIpList = implode(',', $allowedIps);
+            
+            if (empty($allowedIps)) {
+                $updateStmt = $pdo->prepare('UPDATE users SET session_id = NULL, session_ip = NULL WHERE username = ? AND session_id = ?');
+                $updateStmt->execute([$username, $session_id]);
+            } else {
+                $updateStmt = $pdo->prepare('UPDATE users SET session_ip = ? WHERE username = ? AND session_id = ?');
+                $updateStmt->execute([$newIpList, $username, $session_id]);
+            }
+        }
+        
+        echo json_encode(['success' => true, 'message' => 'Erfolgreich abgemeldet']);
+        exit;
+    }
+
     if ($action === 'set_password') {
         $session_id = $input['session_id'] ?? $_POST['session_id'] ?? '';
         $new_password = $input['new_password'] ?? $_POST['new_password'] ?? '';
@@ -74,16 +126,21 @@ try {
             exit;
         }
 
-        // validate session
-        $stmt = $pdo->prepare('SELECT username, session_id FROM users WHERE username = ? AND session_id = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT username, session_ip FROM users WHERE username = ? AND session_id = ? LIMIT 1');
         $stmt->execute([$username, $session_id]);
         $row = $stmt->fetch();
         if (!$row) {
             echo json_encode(['success' => false, 'message' => 'Ungültige Session']);
             exit;
         }
+        
+        $allowedIps = $row['session_ip'] ? explode(',', $row['session_ip']) : [];
+        $allowedIps = array_map('trim', $allowedIps);
+        if (!in_array($client_ip, $allowedIps)) {
+            echo json_encode(['success' => false, 'message' => 'Ungültige IP-Adresse']);
+            exit;
+        }
 
-        // Hash the new password and update the DB
         $hashed = password_hash($new_password, PASSWORD_DEFAULT);
         $upd = $pdo->prepare('UPDATE users SET password = ?, password_status = ? WHERE username = ?');
         $upd->execute([$hashed, 'changed', $username]);
@@ -92,7 +149,7 @@ try {
         exit;
     }
 
-    $stmt = $pdo->prepare('SELECT username, password, status, session_id, password_status FROM users WHERE username = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT username, password, status, password_status, session_id, session_ip FROM users WHERE username = ? LIMIT 1');
     $stmt->execute([$username]);
     $row = $stmt->fetch();
 
@@ -103,31 +160,46 @@ try {
 
     $password_status = $row['password_status'] ?? 'changed';
 
-    // If password_status is 'changed' the stored password is hashed and we must verify
-    if ($password_status === 'changed') {
-        if (!password_verify($pass, $row['password'])) {
-            echo json_encode(['success' => false, 'message' => 'Ungültiges Passwort']);
-            exit;
-        }
-        // successful login with hashed password
-        echo json_encode(['success' => true, 'message' => 'Erfolgreich angemeldet', 'status' => $row['status'], 'session_id' => $row['session_id'], 'must_change_password' => false]);
+    if (!password_verify($pass, $row['password'])) {
+        echo json_encode(['success' => false, 'message' => 'Ungültiges Passwort']);
         exit;
     }
 
-    // If password_status is not 'changed' (e.g., 'unchanged'), stored password is plaintext
-    // Accept plaintext match and instruct client to force a password change
+    $existing_session_id = $row['session_id'];
+    $existing_ips = $row['session_ip'] ? explode(',', $row['session_ip']) : [];
+    $existing_ips = array_map('trim', $existing_ips);
+    
+    if (!$existing_session_id || empty($row['session_ip'])) {
+        $new_session_id = sprintf(
+            '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+            mt_rand(0, 0xffff),
+            mt_rand(0, 0x0fff) | 0x4000,
+            mt_rand(0, 0x3fff) | 0x8000,
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+        );
+        
+        $updateSession = $pdo->prepare('UPDATE users SET session_id = ?, session_ip = ? WHERE username = ?');
+        $updateSession->execute([$new_session_id, $client_ip, $username]);
+    } else {
+        $new_session_id = $existing_session_id;
+        
+        if (!in_array($client_ip, $existing_ips)) {
+            $existing_ips[] = $client_ip;
+            $existing_ips = array_slice($existing_ips, -5);
+            $new_ip_list = implode(',', $existing_ips);
+            
+            $updateIp = $pdo->prepare('UPDATE users SET session_ip = ? WHERE username = ?');
+            $updateIp->execute([$new_ip_list, $username]);
+        }
+    }
+
     if ($password_status === 'unchanged') {
-        if (!hash_equals($row['password'], $pass)) {
-            echo json_encode(['success' => false, 'message' => 'Ungültiges Passwort']);
-            exit;
-        }
-        // Login OK but require password reset
-        echo json_encode(['success' => true, 'message' => 'Passwort muss geändert werden', 'status' => $row['status'], 'session_id' => $row['session_id'], 'must_change_password' => true]);
+        echo json_encode(['success' => true, 'message' => 'Passwort muss geändert werden', 'status' => $row['status'], 'session_id' => $new_session_id, 'must_change_password' => true]);
         exit;
     }
 
-    // Fallback: deny
-    echo json_encode(['success' => false, 'message' => 'Ungültiger Passwortzustand']);
+    echo json_encode(['success' => true, 'message' => 'Erfolgreich angemeldet', 'status' => $row['status'], 'session_id' => $new_session_id, 'must_change_password' => false]);
     exit;
 
 } catch (PDOException $e) {

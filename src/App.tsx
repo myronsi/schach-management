@@ -10,8 +10,9 @@ import HistoryAdmin from "./pages/history/HistoryAdmin";
 import TeamsAdmin from "./pages/teams/TeamsAdmin";
 import TournamentsAdmin from "./pages/tournaments/TournamentsAdmin";
 import MediaAdmin from "./pages/media/MediaAdmin";
+import UsersAdmin from "./pages/users/UsersAdmin";
 import { Toaster } from "./components/ui/toaster";
-import { Calendar, Newspaper, History, Users, Trophy, Image } from "lucide-react";
+import { Calendar, Newspaper, History, Users, Trophy, Image, UserCog } from "lucide-react";
 
 const queryClient = new QueryClient();
 
@@ -68,6 +69,13 @@ const Dashboard = () => {
       icon: Image,
       path: '/media',
       color: 'bg-pink-50 border-pink-200 hover:bg-pink-100'
+    },
+    {
+      title: 'Benutzer',
+      description: 'Verwalten Sie Benutzerkonten',
+      icon: UserCog,
+      path: '/users',
+      color: 'bg-indigo-50 border-indigo-200 hover:bg-indigo-100'
     }
   ];
   
@@ -126,6 +134,7 @@ const AppContent = () => {
         <Route path="/teams" element={<ProtectedRoute><TeamsAdmin /></ProtectedRoute>} />
         <Route path="/tournaments" element={<ProtectedRoute><TournamentsAdmin /></ProtectedRoute>} />
         <Route path="/media" element={<ProtectedRoute><MediaAdmin /></ProtectedRoute>} />
+        <Route path="/users" element={<ProtectedRoute><UsersAdmin /></ProtectedRoute>} />
         <Route 
           path="/dashboard" 
           element={
