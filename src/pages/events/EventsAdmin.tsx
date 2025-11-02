@@ -3,15 +3,19 @@ import Navbar from '@/components/ui/navbar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Calendar, Clock, MapPin, Edit, Trash2, Plus } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Calendar, Clock, MapPin, Edit, Trash2, Check, ChevronsUpDown, Plus } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { TimeInput } from '@/components/ui/time-input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
-import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { DatePicker } from '@/components/ui/date-picker';
+import { TypeSelector } from '@/components/ui/type-selector';
+import { Label } from '@/components/ui/label';
+import CreateEventDialog from '@/components/events/CreateEventDialog';
+import EditEventDialog from '@/components/events/EditEventDialog';
+import DeleteEventDialog from '@/components/events/DeleteEventDialog';
 
 const API = 'https://sc-laufenburg.de/api/events.php';
 
@@ -39,8 +43,12 @@ const EventsList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Event>>({});
+  const [originalEvent, setOriginalEvent] = useState<Event | null>(null);
   const [currentFilter, setCurrentFilter] = useState<FilterType>('future');
   const [filterOpen, setFilterOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   
   const [alertDialog, setAlertDialog] = useState<{
     open: boolean;
@@ -106,6 +114,35 @@ const EventsList: React.FC = () => {
     setFilterOpen(false);
   };
 
+  const handleEventSuccess = () => {
+    loadEvents();
+  };
+
+  const hasChanges = () => {
+    if (!originalEvent) return false;
+    
+    return (
+      editForm.title !== originalEvent.title ||
+      editForm.date !== originalEvent.date ||
+      editForm.time !== originalEvent.time ||
+      editForm.location !== originalEvent.location ||
+      editForm.description !== originalEvent.description ||
+      editForm.type !== originalEvent.type
+    );
+  };
+
+  const formatDateForAPI = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const parseDateString = (dateStr: string): Date => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+
   const loadEvents = async () => {
     try {
       const res = await fetch(`${API}?action=list`);
@@ -132,6 +169,7 @@ const EventsList: React.FC = () => {
 
   const handleEdit = (event: Event) => {
     setEditingId(event.id);
+    setOriginalEvent(event);
     setEditForm(event);
   };
 
@@ -148,6 +186,7 @@ const EventsList: React.FC = () => {
       if (res.ok) {
         await loadEvents();
         setEditingId(null);
+        setOriginalEvent(null);
         setEditForm({});
         showAlert('Erfolg', 'Ereignis wurde erfolgreich gespeichert', 'success');
       } else {
@@ -185,6 +224,7 @@ const EventsList: React.FC = () => {
 
   const handleCancelEdit = () => {
     setEditingId(null);
+    setOriginalEvent(null);
     setEditForm({});
   };
 
@@ -267,12 +307,59 @@ const EventsList: React.FC = () => {
                 </PopoverContent>
               </Popover>
               
-              <Link to="/events/create">
-                <Button className="flex items-center gap-2 w-full sm:w-auto">
-                  <Plus className="w-4 h-4" />
-                  <span className="sm:inline">Neues Ereignis</span>
-                </Button>
-              </Link>
+              <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="bg-green-600 text-white hover:bg-green-700 w-full sm:w-auto">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Neues Ereignis
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="w-[95vw] max-w-md sm:max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Neues Ereignis erstellen</DialogTitle>
+                  </DialogHeader>
+                  <CreateEventDialog 
+                    onSuccess={handleEventSuccess} 
+                    onClose={() => setCreateDialogOpen(false)}
+                  />
+                </DialogContent>
+              </Dialog>
+              
+              <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="bg-yellow-600 text-white hover:bg-yellow-700 w-full sm:w-auto">
+                    <Edit className="mr-2 h-4 w-4" />
+                    Ereignisse bearbeiten
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="w-[95vw] max-w-md sm:max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Ereignisse bearbeiten</DialogTitle>
+                  </DialogHeader>
+                  <EditEventDialog 
+                    onSuccess={handleEventSuccess}
+                    onClose={() => setEditDialogOpen(false)}
+                  />
+                </DialogContent>
+              </Dialog>
+              
+              <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="bg-red-600 text-white hover:bg-red-700 w-full sm:w-auto">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Ereignisse löschen
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="w-[95vw] max-w-md sm:max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Ereignisse löschen</DialogTitle>
+                  </DialogHeader>
+                  <DeleteEventDialog 
+                    onSuccess={handleEventSuccess}
+                    onClose={() => setDeleteDialogOpen(false)}
+                  />
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
 
@@ -280,16 +367,9 @@ const EventsList: React.FC = () => {
             <Card>
               <CardContent className="p-6 sm:p-8 text-center text-gray-500">
                 {events.length === 0 ? (
-                  <>
-                    Keine Ereignisse vorhanden. 
-                    <Link to="/events/create" className="text-blue-600 hover:underline ml-1">
-                      Erstellen Sie das erste Ereignis.
-                    </Link>
-                  </>
+                  'Keine Ereignisse vorhanden. Erstellen Sie das erste Ereignis.'
                 ) : (
-                  <>
-                    Keine Ereignisse für "{filterOptions.find(opt => opt.value === currentFilter)?.label}" gefunden.
-                  </>
+                  `Keine Ereignisse für "${filterOptions.find(opt => opt.value === currentFilter)?.label}" gefunden.`
                 )}
               </CardContent>
             </Card>
@@ -301,41 +381,84 @@ const EventsList: React.FC = () => {
                     {editingId === event.id ? (
                       <div className="space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <Input
-                            placeholder="Titel"
-                            value={editForm.title || ''}
-                            onChange={(e) => setEditForm({...editForm, title: e.target.value})}
-                            className="sm:col-span-2"
-                          />
-                          <Input
-                            type="date"
-                            value={editForm.date || ''}
-                            onChange={(e) => setEditForm({...editForm, date: e.target.value})}
-                          />
-                          <TimeInput
-                            value={editForm.time || ''}
-                            onChange={(time) => setEditForm({...editForm, time})}
-                            placeholder="Uhrzeit auswählen"
-                          />
-                          <Input
-                            placeholder="Ort"
-                            value={editForm.location || ''}
-                            onChange={(e) => setEditForm({...editForm, location: e.target.value})}
-                          />
-                          <Input
-                            placeholder="Typ"
-                            value={editForm.type || ''}
-                            onChange={(e) => setEditForm({...editForm, type: e.target.value})}
-                          />
-                          <Input
-                            placeholder="Beschreibung"
-                            value={editForm.description || ''}
-                            onChange={(e) => setEditForm({...editForm, description: e.target.value})}
-                            className="sm:col-span-2"
-                          />
+                          <div className="sm:col-span-2">
+                            <Label htmlFor="edit-title">Titel</Label>
+                            <Input
+                              id="edit-title"
+                              placeholder="Titel"
+                              value={editForm.title || ''}
+                              onChange={(e) => setEditForm({...editForm, title: e.target.value})}
+                              className="mt-1"
+                            />
+                          </div>
+                          
+                          <div>
+                            <Label htmlFor="edit-date">Datum</Label>
+                            <div className="mt-1">
+                              <DatePicker
+                                value={editForm.date ? parseDateString(editForm.date) : undefined}
+                                onChange={(date) => setEditForm({
+                                  ...editForm, 
+                                  date: date ? formatDateForAPI(date) : ''
+                                })}
+                                placeholder="Datum auswählen"
+                              />
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-time">Uhrzeit</Label>
+                            <Input
+                              id="edit-time"
+                              type="time"
+                              step="1"
+                              value={editForm.time || ''}
+                              onChange={(e) => setEditForm({...editForm, time: e.target.value})}
+                              className="bg-background appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+                            />
+                          </div>
+                          
+                          <div>
+                            <Label htmlFor="edit-location">Ort</Label>
+                            <Input
+                              id="edit-location"
+                              placeholder="Ort"
+                              value={editForm.location || ''}
+                              onChange={(e) => setEditForm({...editForm, location: e.target.value})}
+                              className="mt-1"
+                            />
+                          </div>
+                          
+                          <div>
+                            <div className="mt-1">
+                              <TypeSelector
+                                value={editForm.type || ''}
+                                onChange={(type) => setEditForm({...editForm, type})}
+                                placeholder="Typ auswählen"
+                              />
+                            </div>
+                          </div>
+                          
+                          <div className="sm:col-span-2">
+                            <Label htmlFor="edit-description">Beschreibung</Label>
+                            <Input
+                              id="edit-description"
+                              placeholder="Beschreibung"
+                              value={editForm.description || ''}
+                              onChange={(e) => setEditForm({...editForm, description: e.target.value})}
+                              className="mt-1"
+                            />
+                          </div>
                         </div>
                         <div className="flex flex-col sm:flex-row gap-2">
-                          <Button onClick={handleSaveEdit} size="sm" className="w-full sm:w-auto">Speichern</Button>
+                          <Button 
+                            onClick={handleSaveEdit} 
+                            size="sm" 
+                            className="w-full sm:w-auto"
+                            disabled={!hasChanges()}
+                          >
+                            Speichern
+                          </Button>
                           <Button onClick={handleCancelEdit} variant="outline" size="sm" className="w-full sm:w-auto">Abbrechen</Button>
                         </div>
                       </div>

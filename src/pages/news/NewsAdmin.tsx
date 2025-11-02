@@ -97,9 +97,7 @@ const NewsAdmin: React.FC = () => {
     });
   };
   
-  // editor logic moved into RichTextEditor component
 
-  // determine if required fields are filled and whether editing content changed
   const requiredFieldsFilled = Boolean(
     form.slug && String(form.slug).trim() !== '' &&
     form.title && String(form.title).trim() !== '' &&
@@ -109,7 +107,7 @@ const NewsAdmin: React.FC = () => {
   );
 
   const hasChanges = () => {
-    if (!editing) return true; // creating -> considered changed when required filled
+    if (!editing) return true;
     const keys: (keyof NewsItem)[] = ['slug', 'title', 'description', 'content', 'date', 'image', 'link'];
     for (const k of keys) {
       const fVal = (form as any)[k] ?? '';
@@ -135,15 +133,14 @@ const NewsAdmin: React.FC = () => {
     }
   };
 
-  // Generate a slug from the current title
   const slugify = (str: string) =>
     str
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // strip accents
-      .replace(/[^a-z0-9]+/g, '-') // non-alphanumeric to dashes
-      .replace(/^-+|-+$/g, '') // trim leading/trailing dashes
-      .replace(/-{2,}/g, '-'); // collapse multiple dashes
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .replace(/-{2,}/g, '-');
 
   const fetchNewsBySlug = async (slug: string): Promise<NewsItem> => {
     const res = await fetch(`${API}?slug=${encodeURIComponent(slug)}`);
@@ -179,10 +176,8 @@ const NewsAdmin: React.FC = () => {
 
   const startCreate = () => {
     setEditing(null);
-    // generate a new id based on the current list: max id + 1
     const maxId = (data || []).reduce((m, it) => Math.max(m, it.id || 0), 0);
     const newId = maxId + 1 || 1;
-    // default date to today (YYYY-MM-DD) so user can adjust it if needed
     const todayStr = new Date().toISOString().slice(0, 10);
     setForm({ id: newId, date: todayStr, content: '' });
   setSelectedDate(new Date());
@@ -190,15 +185,12 @@ const NewsAdmin: React.FC = () => {
   };
 
   const startEdit = async (item: NewsItem) => {
-    // fetch full news data by slug to ensure we have all fields (content etc.)
     try {
       const full = await fetchNewsBySlug(item.slug);
       setEditing(full);
-      // normalize date to YYYY-MM-DD for date input; if missing, default to today
       const today = new Date().toISOString().slice(0, 10);
       const datePart = full.date ? String(full.date).split(' ')[0] : today;
       setForm({ ...full, date: datePart });
-      // set selectedDate for DatePicker
       try {
         setSelectedDate(new Date(datePart));
       } catch (e) {
@@ -210,21 +202,13 @@ const NewsAdmin: React.FC = () => {
     }
   };
 
-  // LTR is handled inside RichTextEditor
-
-  // syncing is handled inside RichTextEditor
-
   const save = () => {
-    // Prepare payload for server: remove any temporary client-side id
     const payload = { ...form } as any;
-    // ensure we send client-generated id for create if present
     if (form.id) payload.id = form.id;
-    // if date is a YYYY-MM-DD string, convert to full datetime; if missing set to now
     const nowFull = new Date().toISOString().replace('T', ' ').split('.')[0];
     if (!payload.date) {
       payload.date = nowFull;
     } else if (typeof payload.date === 'string' && payload.date.length === 10) {
-      // add midnight time
       payload.date = `${payload.date} 00:00:00`;
     }
     createUpdate.mutate(payload);
@@ -232,8 +216,8 @@ const NewsAdmin: React.FC = () => {
 
   const handleDelete = async (item: NewsItem) => {
     showConfirm(
-      'Neuigkeit löschen',
-      `Möchten Sie die Neuigkeit "${item.title}" wirklich löschen?`,
+      'Nachricht löschen',
+      `Möchten Sie die Nachricht "${item.title}" wirklich löschen?`,
       async () => {
         try {
           const res = await fetch(API, {
@@ -244,7 +228,7 @@ const NewsAdmin: React.FC = () => {
           
           if (res.ok) {
             queryClient.invalidateQueries({ queryKey: ['news'] });
-            showAlert('Erfolg', 'Neuigkeit wurde erfolgreich gelöscht', 'success');
+            showAlert('Erfolg', 'Nachricht wurde erfolgreich gelöscht', 'success');
           } else {
             showAlert('Fehler', 'Fehler beim Löschen', 'error');
           }
@@ -261,27 +245,27 @@ const NewsAdmin: React.FC = () => {
       <div className="p-4 sm:p-8">
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Neuigkeiten</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Nachrichten</h1>
             <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
               <Button onClick={startCreate} className="flex items-center gap-2 w-full sm:w-auto">
                 <Plus className="w-4 h-4" />
-                <span className="sm:inline">Neue Neuigkeit</span>
+                <span className="sm:inline">Neue Nachricht</span>
               </Button>
             </div>
           </div>
 
           {isLoading ? (
-            <div className="text-center">Lade Neuigkeiten...</div>
+            <div className="text-center">Lade Nachrichten...</div>
           ) : error ? (
             <Card>
               <CardContent className="p-6 sm:p-8 text-center text-gray-500">
-                Fehler beim Laden der Neuigkeiten
+                Fehler beim Laden der Nachrichten
               </CardContent>
             </Card>
           ) : (data || []).length === 0 ? (
             <Card>
               <CardContent className="p-6 sm:p-8 text-center text-gray-500">
-                Keine Neuigkeiten vorhanden. Erstellen Sie die erste Neuigkeit.
+                Keine Nachrichten vorhanden. Erstellen Sie die erste Nachricht.
               </CardContent>
             </Card>
           ) : (
@@ -326,7 +310,7 @@ const NewsAdmin: React.FC = () => {
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh]">
                 <DialogHeader>
-                  <DialogTitle>{editing ? 'Neuigkeit bearbeiten' : 'Neue Neuigkeit'}</DialogTitle>
+                  <DialogTitle>{editing ? 'Nachricht bearbeiten' : 'Neue Nachricht'}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
                 <div className="space-y-2">
@@ -413,7 +397,6 @@ const NewsAdmin: React.FC = () => {
         </div>
       </div>
       
-      {/* Dialog Components */}
       <AlertMessage
         open={alertDialog.open}
         onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}

@@ -1,23 +1,16 @@
 import { TooltipProvider } from "./components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
-import { useRef, useState } from "react";
 import Login from "./pages/Login";
 import Navbar from "./components/ui/navbar";
-import EventsList from "./pages/events/EventsList";
-import EventsListEmbedded from "./pages/events/EventsListEmbedded";
+import EventsList from "./pages/events/EventsAdmin";
 import NewsAdmin from "./pages/news/NewsAdmin";
 import HistoryAdmin from "./pages/history/HistoryAdmin";
 import TeamsAdmin from "./pages/teams/TeamsAdmin";
 import TournamentsAdmin from "./pages/tournaments/TournamentsAdmin";
-import type { EventsListRef } from "./pages/events/EventsListEmbedded";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./components/ui/dialog";
-import { Button } from "./components/ui/button";
-import CreateEventDialog from "./components/events/CreateEventDialog";
-import EditEventDialog from "./components/events/EditEventDialog";
-import DeleteEventDialog from "./components/events/DeleteEventDialog";
 import { Toaster } from "./components/ui/toaster";
+import { Calendar, Newspaper, History, Users, Trophy } from "lucide-react";
 
 const queryClient = new QueryClient();
 
@@ -31,84 +24,83 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
 const Dashboard = () => {
   const { username } = useAuth();
-  const eventsListRef = useRef<EventsListRef>(null);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   
-  const handleEventSuccess = () => {
-    eventsListRef.current?.refresh();
-  };
+  const managementPages = [
+    {
+      title: 'Ereignisse',
+      description: 'Verwalten Sie alle Ereignisse und Termine',
+      icon: Calendar,
+      path: '/events',
+      color: 'bg-blue-50 border-blue-200 hover:bg-blue-100'
+    },
+    {
+      title: 'Nachrichten',
+      description: 'Verwalten Sie Nachrichten und Ankündigungen',
+      icon: Newspaper,
+      path: '/news',
+      color: 'bg-green-50 border-green-200 hover:bg-green-100'
+    },
+    {
+      title: 'Geschichte',
+      description: 'Verwalten Sie die Vereinsgeschichte',
+      icon: History,
+      path: '/history',
+      color: 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100'
+    },
+    {
+      title: 'Mannschaften',
+      description: 'Verwalten Sie Mannschaften und Spieler',
+      icon: Users,
+      path: '/teams',
+      color: 'bg-purple-50 border-purple-200 hover:bg-purple-100'
+    },
+    {
+      title: 'Turniere',
+      description: 'Verwalten Sie Turnierergebnisse',
+      icon: Trophy,
+      path: '/tournaments',
+      color: 'bg-orange-50 border-orange-200 hover:bg-orange-100'
+    }
+  ];
   
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       <div className="p-4 sm:p-8">
         <div className="max-w-6xl mx-auto">
-          <div className="bg-white rounded-lg shadow p-4 sm:p-6 mb-4 sm:mb-6">
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6">
+          <div className="bg-white rounded-lg shadow p-4 sm:p-6 mb-6">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
               Willkommen, {username}!
             </h1>
-            <div className="text-gray-600">
-              <p className="text-sm sm:text-base">Sie sind erfolgreich in der Anwendung angemeldet.</p>
-              <div className="mt-4 sm:mt-6">
-                <h3 className="text-base sm:text-lg font-medium mb-2">Ereignisse verwalten</h3>
-                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-                  <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="bg-green-600 text-white hover:bg-green-700 w-full sm:w-auto">
-                        Neues Ereignis
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="w-[95vw] max-w-md sm:max-w-lg">
-                      <DialogHeader>
-                        <DialogTitle>Neues Ereignis erstellen</DialogTitle>
-                      </DialogHeader>
-                      <CreateEventDialog 
-                        onSuccess={handleEventSuccess} 
-                        onClose={() => setCreateDialogOpen(false)}
-                      />
-                    </DialogContent>
-                  </Dialog>
-                  
-                  <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="bg-yellow-600 text-white hover:bg-yellow-700 w-full sm:w-auto">
-                        Ereignisse bearbeiten
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="w-[95vw] max-w-md sm:max-w-lg">
-                      <DialogHeader>
-                        <DialogTitle>Ereignisse bearbeiten</DialogTitle>
-                      </DialogHeader>
-                      <EditEventDialog 
-                        onSuccess={handleEventSuccess}
-                        onClose={() => setEditDialogOpen(false)}
-                      />
-                    </DialogContent>
-                  </Dialog>
-                  
-                  <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="bg-red-600 text-white hover:bg-red-700 w-full sm:w-auto">
-                        Ereignisse löschen
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="w-[95vw] max-w-md sm:max-w-lg">
-                      <DialogHeader>
-                        <DialogTitle>Ereignisse löschen</DialogTitle>
-                      </DialogHeader>
-                      <DeleteEventDialog 
-                        onSuccess={handleEventSuccess}
-                        onClose={() => setDeleteDialogOpen(false)}
-                      />
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </div>
-            </div>
+            <p className="text-gray-600">
+              Wählen Sie einen Bereich aus, um mit der Verwaltung zu beginnen.
+            </p>
           </div>
-          <EventsListEmbedded ref={eventsListRef} />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {managementPages.map((page) => {
+              const Icon = page.icon;
+              return (
+                <Link key={page.path} to={page.path}>
+                  <div className={`${page.color} border-2 rounded-lg p-6 transition-all hover:shadow-md cursor-pointer h-full`}>
+                    <div className="flex items-start gap-4">
+                      <div className="flex-shrink-0">
+                        <Icon className="w-8 h-8 text-gray-700" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                          {page.title}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          {page.description}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
