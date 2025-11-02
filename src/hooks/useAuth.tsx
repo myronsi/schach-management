@@ -5,8 +5,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
   username: string | null;
   login: (username: string, password: string) => Promise<any>;
-  logout: () => void;
+  logout: () => Promise<void>;
   checkAuthStatus: () => Promise<void>;
+  isAuthChecked: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -18,13 +19,14 @@ interface AuthProviderProps {
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
 
   const checkAuthStatus = async () => {
     const savedUsername = localStorage.getItem('auth_username');
     const savedSession = localStorage.getItem('auth_session_id');
     if (savedUsername && savedSession) {
       try {
-        const res = await fetch('https://viserix.com/auth.php', {
+        const res = await fetch('https://sc-laufenburg.de/api/auth.php', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'check', username: savedUsername, session_id: savedSession })
@@ -34,6 +36,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             if (data.status && data.status === 'admin') {
               setIsAuthenticated(true);
               setUsername(savedUsername);
+              setIsAuthChecked(true);
               return;
             } else {
               localStorage.removeItem('auth_username');
@@ -41,6 +44,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
               localStorage.removeItem('loginTimestamp');
               setIsAuthenticated(false);
               setUsername(null);
+              setIsAuthChecked(true);
               return;
             }
           }
@@ -48,16 +52,21 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
     }
 
-    localStorage.removeItem('auth_username');
-    localStorage.removeItem('auth_session_id');
-    localStorage.removeItem('loginTimestamp');
-    setIsAuthenticated(false);
-    setUsername(null);
+    const stillHasSaved = !!(localStorage.getItem('auth_username') && localStorage.getItem('auth_session_id'));
+    if (!stillHasSaved) {
+      localStorage.removeItem('auth_username');
+      localStorage.removeItem('auth_session_id');
+      localStorage.removeItem('loginTimestamp');
+      setIsAuthenticated(false);
+      setUsername(null);
+    }
+
+    setIsAuthChecked(true);
   };
 
   const login = async (username: string, password: string) => {
     try {
-      const res = await fetch('https://viserix.com/auth.php', {
+      const res = await fetch('https://sc-laufenburg.de/api/auth.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -83,7 +92,26 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    const savedUsername = localStorage.getItem('auth_username');
+    const savedSession = localStorage.getItem('auth_session_id');
+    
+    if (savedUsername && savedSession) {
+      try {
+        await fetch('https://sc-laufenburg.de/api/auth.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            action: 'logout', 
+            username: savedUsername, 
+            session_id: savedSession 
+          })
+        });
+      } catch (err) {
+        console.error('Logout error:', err);
+      }
+    }
+    
     localStorage.removeItem('auth_username');
     localStorage.removeItem('auth_session_id');
     localStorage.removeItem('loginTimestamp');
@@ -102,6 +130,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       login,
       logout,
       checkAuthStatus
+      , isAuthChecked
     }}>
       {children}
     </AuthContext.Provider>

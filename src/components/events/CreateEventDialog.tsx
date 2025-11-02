@@ -9,7 +9,7 @@ import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DatePicker } from '@/components/ui/date-picker';
 import { TypeSelector } from '@/components/ui/type-selector';
-import { TimeInput } from '@/components/ui/time-input';
+// use native time input instead of custom TimeInput
 import { AlertMessage } from '@/components/ui/alert-message';
 
 type FormData = {
@@ -23,7 +23,7 @@ type FormData = {
   repeatCount?: number;
 };
 
-const API = 'https://viserix.com/events.php';
+const API = 'https://sc-laufenburg.de/api/events.php';
 
 interface CreateEventDialogProps {
   onSuccess?: () => void;
@@ -327,10 +327,13 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
         
         <div className="space-y-2">
           <Label htmlFor="time">Uhrzeit</Label>
-          <TimeInput
+          <Input
+            id="time"
+            type="time"
+            step="1"
             value={watch('time') || ''}
-            onChange={(time) => setValue('time', time)}
-            placeholder="Uhrzeit auswählen"
+            onChange={(e) => setValue('time', e.target.value)}
+            className="bg-background appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
           />
         </div>
         <div className="space-y-2">

@@ -28,7 +28,7 @@ interface Event {
   type?: string;
 }
 
-const API = 'https://viserix.com/events.php';
+const API = 'https://sc-laufenburg.de/api/events.php';
 
 interface EditEventDialogProps {
   onSuccess?: () => void;
