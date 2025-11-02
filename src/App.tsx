@@ -10,6 +10,7 @@ import EventsListEmbedded from "./pages/events/EventsListEmbedded";
 import NewsAdmin from "./pages/news/NewsAdmin";
 import HistoryAdmin from "./pages/history/HistoryAdmin";
 import TeamsAdmin from "./pages/teams/TeamsAdmin";
+import TournamentsAdmin from "./pages/tournaments/TournamentsAdmin";
 import type { EventsListRef } from "./pages/events/EventsListEmbedded";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./components/ui/dialog";
 import { Button } from "./components/ui/button";
@@ -123,6 +124,7 @@ const AppContent = () => {
         <Route path="/news" element={<ProtectedRoute><NewsAdmin /></ProtectedRoute>} />
         <Route path="/history" element={<ProtectedRoute><HistoryAdmin /></ProtectedRoute>} />
         <Route path="/teams" element={<ProtectedRoute><TeamsAdmin /></ProtectedRoute>} />
+        <Route path="/tournaments" element={<ProtectedRoute><TournamentsAdmin /></ProtectedRoute>} />
         <Route 
           path="/dashboard" 
           element={
