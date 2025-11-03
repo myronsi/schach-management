@@ -25,6 +25,7 @@ interface Event {
   location?: string;
   description?: string;
   type?: string;
+  is_recurring?: number;
 }
 
 const API = 'https://sc-laufenburg.de/api/events.php';

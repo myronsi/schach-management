@@ -9,7 +9,6 @@ import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DatePicker } from '@/components/ui/date-picker';
 import { TypeSelector } from '@/components/ui/type-selector';
-// use native time input instead of custom TimeInput
 import { AlertMessage } from '@/components/ui/alert-message';
 
 type FormData = {
@@ -21,6 +20,7 @@ type FormData = {
   type?: string;
   repeatType?: string;
   repeatCount?: number;
+  is_recurring?: boolean;
 };
 
 const API = 'https://sc-laufenburg.de/api/events.php';
@@ -39,7 +39,8 @@ const eventTemplates = [
       time: "18:30",
       location: "Vereinsheim",
       description: "Regelmäßiger Vereinsabend mit freiem Spiel",
-      type: "training"
+      type: "training",
+      is_recurring: true
     }
   },
   {
@@ -50,7 +51,8 @@ const eventTemplates = [
       time: "17:00",
       location: "Vereinsheim",
       description: "Wöchentliches Jugendtraining",
-      type: "training"
+      type: "training",
+      is_recurring: true
     }
   },
   {
@@ -61,7 +63,8 @@ const eventTemplates = [
       time: "17:00",
       location: "Vereinsheim",
       description: "Jahreshauptversammlung",
-      type: "meeting"
+      type: "meeting",
+      is_recurring: false
     }
   }
 ];
@@ -88,6 +91,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [selectedType, setSelectedType] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRecurring, setIsRecurring] = useState<boolean>(false);
   const watchTitle = watch("title");
   const watchRepeatType = watch("repeatType");
   const watchRepeatCount = watch("repeatCount");
@@ -147,8 +151,10 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
       setValue('location', template.template.location);
       setValue('description', template.template.description);
       setValue('type', template.template.type);
+      setValue('is_recurring', template.template.is_recurring);
       setSelectedTemplate(templateValue);
       setSelectedType(template.template.type);
+      setIsRecurring(template.template.is_recurring);
     }
     setTemplateOpen(false);
   };
@@ -197,7 +203,8 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
         time: data.time,
         location: data.location,
         description: data.description,
-        type: selectedType || data.type
+        type: selectedType || data.type,
+        is_recurring: isRecurring ? 1 : 0
       };
 
       if (!data.repeatType || data.repeatType === "none") {
@@ -351,6 +358,22 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
           onChange={handleTypeChange}
           required
         />
+        
+        <div className="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            id="is_recurring"
+            checked={isRecurring}
+            onChange={(e) => {
+              setIsRecurring(e.target.checked);
+              setValue('is_recurring', e.target.checked);
+            }}
+            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+          />
+          <Label htmlFor="is_recurring" className="cursor-pointer">
+            Wiederkehrendes Ereignis (z.B. wöchentlich, monatlich)
+          </Label>
+        </div>
         
         <div className="space-y-2">
           <Label>Wiederholung</Label>

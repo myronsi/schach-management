@@ -16,6 +16,7 @@ type FormData = {
   location?: string;
   description?: string;
   type?: string;
+  is_recurring?: boolean;
 };
 
 interface Event {
@@ -26,6 +27,7 @@ interface Event {
   location?: string;
   description?: string;
   type?: string;
+  is_recurring?: number;
 }
 
 const API = 'https://sc-laufenburg.de/api/events.php';
@@ -46,6 +48,7 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
   const [selectedType, setSelectedType] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [isRecurring, setIsRecurring] = useState<boolean>(false);
 
   useEffect(() => {
     const loadEvents = async () => {
@@ -74,7 +77,9 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
       setValue('location', existingEvent.location || '');
       setValue('description', existingEvent.description || '');
       setValue('type', existingEvent.type || '');
+      setValue('is_recurring', existingEvent.is_recurring === 1);
       setSelectedType(existingEvent.type || '');
+      setIsRecurring(existingEvent.is_recurring === 1);
     }
   };
 
@@ -97,6 +102,7 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
       if (data.location) updates.location = data.location;
       if (data.description) updates.description = data.description;
       if (selectedType) updates.type = selectedType;
+      updates.is_recurring = isRecurring ? 1 : 0;
 
       const res = await fetch(`${API}?action=editByTitle`, {
         method: 'POST',
@@ -223,6 +229,23 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
               value={selectedType}
               onChange={handleTypeChange}
             />
+            
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="is_recurring"
+                checked={isRecurring}
+                onChange={(e) => {
+                  setIsRecurring(e.target.checked);
+                  setValue('is_recurring', e.target.checked);
+                  setHasChanges(true);
+                }}
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <Label htmlFor="is_recurring" className="cursor-pointer">
+                Wiederkehrendes Ereignis (z.B. wöchentlich, monatlich)
+              </Label>
+            </div>
           </>
         )}
         

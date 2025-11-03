@@ -27,6 +27,7 @@ interface Event {
   location?: string;
   description?: string;
   type?: string;
+  is_recurring?: number;
 }
 
 type FilterType = 'future' | 'past' | 'today';
@@ -110,7 +111,7 @@ const EventsList: React.FC = () => {
 
   const handleFilterChange = (filter: FilterType) => {
     setCurrentFilter(filter);
-    setFilteredEvents(filterEvents(events, filter));
+    loadEvents(filter);
     setFilterOpen(false);
   };
 
@@ -127,7 +128,8 @@ const EventsList: React.FC = () => {
       editForm.time !== originalEvent.time ||
       editForm.location !== originalEvent.location ||
       editForm.description !== originalEvent.description ||
-      editForm.type !== originalEvent.type
+      editForm.type !== originalEvent.type ||
+      editForm.is_recurring !== originalEvent.is_recurring
     );
   };
 
@@ -143,14 +145,22 @@ const EventsList: React.FC = () => {
     return new Date(year, month - 1, day);
   };
 
-  const loadEvents = async () => {
+  const loadEvents = async (filterParam?: FilterType) => {
+    const filterToUse = filterParam ?? currentFilter;
     try {
-      const res = await fetch(`${API}?action=list`);
+      let action = 'list';
+      if (filterToUse === 'future' || filterToUse === 'today') {
+        action = 'upcoming';
+      } else if (filterToUse === 'past') {
+        action = 'past';
+      }
+
+      const res = await fetch(`${API}?action=${action}`);
       if (res.ok) {
         const data = await res.json();
         const allEvents = data.events || [];
         setEvents(allEvents);
-        setFilteredEvents(filterEvents(allEvents, currentFilter));
+        setFilteredEvents(filterEvents(allEvents, filterToUse));
       }
     } catch (err) {
       console.error('Fehler beim Laden der Ereignisse:', err);
@@ -448,6 +458,16 @@ const EventsList: React.FC = () => {
                               onChange={(e) => setEditForm({...editForm, description: e.target.value})}
                               className="mt-1"
                             />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              id="edit-is-recurring"
+                              type="checkbox"
+                              checked={Boolean(editForm.is_recurring)}
+                              onChange={(e) => setEditForm({ ...editForm, is_recurring: e.target.checked ? 1 : 0 })}
+                              className="h-4 w-4"
+                            />
+                            <Label htmlFor="edit-is-recurring" className="mb-0">Wiederkehrend</Label>
                           </div>
                         </div>
                         <div className="flex flex-col sm:flex-row gap-2">
