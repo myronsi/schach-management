@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Edit, Plus, Trash2 } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
 
 const API = 'https://sc-laufenburg.de/api/teams.php';
 
@@ -30,9 +31,21 @@ interface TeamItem {
   founded?: number;
 }
 
+interface TeamDescription {
+  id: number;
+  name: string;
+  text: string;
+}
+
 const fetchTeams = async (): Promise<TeamItem[]> => {
   const res = await fetch(API);
   if (!res.ok) throw new Error('Failed to fetch teams');
+  return res.json();
+};
+
+const fetchDescription = async (): Promise<TeamDescription> => {
+  const res = await fetch(`${API}?id=0`);
+  if (!res.ok) throw new Error('Failed to fetch description');
   return res.json();
 };
 
@@ -53,9 +66,13 @@ const TeamsAdmin: React.FC = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data, isLoading, error } = useQuery<TeamItem[], Error>({ queryKey: ['teams'], queryFn: fetchTeams });
+  const { data: description } = useQuery<TeamDescription, Error>({ queryKey: ['description'], queryFn: fetchDescription });
   const [open, setOpen] = useState(false);
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [editing, setEditing] = useState<TeamItem | null>(null);
   const [form, setForm] = useState<Partial<TeamItem>>({});
+  
+  const [descForm, setDescForm] = useState<TeamDescription>({ id: 0, name: '', text: '' });
   
   const [recordW, setRecordW] = useState<number>(0);
   const [recordD, setRecordD] = useState<number>(0);
@@ -147,6 +164,42 @@ const TeamsAdmin: React.FC = () => {
       });
     }
   });
+
+  const updateDescription = useMutation<any, Error, any>({
+    mutationFn: postTeam,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['description'] });
+      toast({ title: 'Erfolg', description: 'Beschreibung gespeichert' });
+      setDescriptionOpen(false);
+    },
+    onError: () => {
+      toast({ 
+        title: 'Fehler', 
+        description: 'Konnte Beschreibung nicht speichern',
+        variant: 'destructive'
+      });
+    }
+  });
+
+  const startEditDescription = () => {
+    if (description) {
+      setDescForm({ ...description });
+    } else {
+      setDescForm({ id: 0, name: 'Mannschaften Beschreibung', text: '' });
+    }
+    setDescriptionOpen(true);
+  };
+
+  const hasDescriptionChanges = () => {
+    if (!description) {
+      return Boolean(descForm.name || descForm.text);
+    }
+    return descForm.name !== description.name || descForm.text !== description.text;
+  };
+
+  const saveDescription = () => {
+    updateDescription.mutate(descForm);
+  };
 
   const startCreate = () => {
     setEditing(null);
@@ -253,6 +306,10 @@ const TeamsAdmin: React.FC = () => {
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Mannschaften</h1>
             <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+              <Button onClick={startEditDescription} variant="outline" className="flex items-center gap-2 w-full sm:w-auto">
+                <Edit className="w-4 h-4" />
+                <span className="sm:inline">Beschreibung bearbeiten</span>
+              </Button>
               <Button onClick={startCreate} className="flex items-center gap-2 w-full sm:w-auto">
                 <Plus className="w-4 h-4" />
                 <span className="sm:inline">Neue Mannschaft</span>
@@ -315,6 +372,45 @@ const TeamsAdmin: React.FC = () => {
               ))}
             </div>
           )}
+
+          <Dialog open={descriptionOpen} onOpenChange={setDescriptionOpen}>
+            <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Mannschaften Beschreibung bearbeiten</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="desc-name">Titel</Label>
+                  <Input 
+                    id="desc-name" 
+                    placeholder="Titel" 
+                    value={descForm.name || ''} 
+                    onChange={(e) => setDescForm({...descForm, name: e.target.value})}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="desc-text">Beschreibung (HTML)</Label>
+                  <RichTextEditor
+                    id="desc-text"
+                    value={descForm.text || ''}
+                    onChange={(html) => setDescForm({...descForm, text: html})}
+                    placeholder="Beschreibung eingeben..."
+                    forceLTR={false}
+                  />
+                </div>
+                
+                <Button 
+                  type="button"
+                  onClick={saveDescription} 
+                  disabled={!hasDescriptionChanges()}
+                  className="w-full"
+                >
+                  Speichern
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh]">

@@ -35,6 +35,19 @@ try {
     $method = $_SERVER['REQUEST_METHOD'];
 
     if ($method === 'GET') {
+        if ($teamId === 0) {
+            $stmt = $pdo->prepare('SELECT id, name, text FROM teams WHERE id = 0 LIMIT 1');
+            $stmt->execute();
+            $row = $stmt->fetch();
+            if (!$row) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'message' => 'Not found']);
+                exit;
+            }
+            echo json_encode($row);
+            exit;
+        }
+        
         if ($teamId) {
             $stmt = $pdo->prepare('SELECT id, name, league, image, url, captain, contact, nextMatch, venue, record, squad, notes, founded FROM teams WHERE id = ? LIMIT 1');
             $stmt->execute([$teamId]);
@@ -48,7 +61,7 @@ try {
             exit;
         }
 
-        $stmt = $pdo->query('SELECT id, name, league, image, url, captain, contact, nextMatch, venue, record, squad, notes, founded FROM teams ORDER BY name ASC LIMIT 100');
+        $stmt = $pdo->query('SELECT id, name, league, image, url, captain, contact, nextMatch, venue, record, squad, notes, founded FROM teams WHERE id != 0 ORDER BY name ASC LIMIT 100');
         $rows = $stmt->fetchAll();
         echo json_encode($rows);
         exit;
@@ -60,6 +73,33 @@ try {
         if (!is_array($data)) $data = $_POST;
 
         $id = isset($data['id']) && $data['id'] !== '' ? (int)$data['id'] : null;
+        
+        if ($id === 0) {
+            $name = trim($data['name'] ?? '');
+            $text = $data['text'] ?? '';
+            
+            if ($name === '') {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'Missing required field: name']);
+                exit;
+            }
+            
+            $check = $pdo->prepare('SELECT id FROM teams WHERE id = 0 LIMIT 1');
+            $check->execute();
+            $exists = (bool)$check->fetch();
+            
+            if ($exists) {
+                $stmt = $pdo->prepare('UPDATE teams SET name = ?, text = ? WHERE id = 0');
+                $stmt->execute([$name, $text]);
+            } else {
+                $stmt = $pdo->prepare('INSERT INTO teams (id, name, text) VALUES (0, ?, ?)');
+                $stmt->execute([$name, $text]);
+            }
+            
+            echo json_encode(['success' => true, 'message' => 'Description updated', 'id' => 0]);
+            exit;
+        }
+        
         $name = trim($data['name'] ?? '');
         $league = trim($data['league'] ?? '');
         $image = isset($data['image']) ? trim((string)$data['image']) : '';
