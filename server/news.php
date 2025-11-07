@@ -12,7 +12,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Read env file (single .env). This file should contain host2,user2,password2,database2,port2 keys.
 $env = [];
 $envFile = __DIR__ . '/.env';
 if (file_exists($envFile)) $env = parse_ini_file($envFile);
@@ -48,8 +47,15 @@ try {
             echo json_encode($row);
             exit;
         }
+        if (isset($input['q']) && trim($input['q']) !== '') {
+            $q = '%' . $input['q'] . '%';
+            $stmt = $pdo->prepare('SELECT id, slug, title, description, date, image FROM news WHERE title LIKE ? OR description LIKE ? ORDER BY date DESC LIMIT 50');
+            $stmt->execute([$q, $q]);
+            $rows = $stmt->fetchAll();
+            echo json_encode($rows);
+            exit;
+        }
 
-        // no slug -> return list of news (id, slug, title, date, description)
         $stmt = $pdo->query('SELECT id, slug, title, description, date, image FROM news ORDER BY date DESC LIMIT 50');
         $rows = $stmt->fetchAll();
         echo json_encode($rows);
@@ -57,19 +63,16 @@ try {
     }
 
     if ($method === 'POST') {
-        // accept JSON body or form-encoded
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true);
         if (!is_array($data)) $data = $_POST;
 
-        // Required fields for create/update: slug, title
         $id = isset($data['id']) && $data['id'] !== '' ? (int)$data['id'] : null;
         $slugv = trim($data['slug'] ?? '');
         $title = trim($data['title'] ?? '');
         $description = trim($data['description'] ?? '');
         $content = $data['content'] ?? null;
         $date = $data['date'] ?? date('Y-m-d H:i:s');
-        // link and image are optional; store empty string if not provided
         $image = isset($data['image']) ? trim((string)$data['image']) : '';
         $link = isset($data['link']) ? trim((string)$data['link']) : '';
 
@@ -80,12 +83,10 @@ try {
         }
 
         if ($id) {
-            // if id provided, check if row exists
             $check = $pdo->prepare('SELECT id FROM news WHERE id = ? LIMIT 1');
             $check->execute([$id]);
             $exists = (bool)$check->fetch();
 
-            // enforce slug uniqueness
             if ($exists) {
                 $slugCheck = $pdo->prepare('SELECT id FROM news WHERE slug = ? AND id != ? LIMIT 1');
                 $slugCheck->execute([$slugv, $id]);
@@ -100,20 +101,17 @@ try {
             }
 
             if ($exists) {
-                // update existing
                 $stmt = $pdo->prepare('UPDATE news SET slug = ?, title = ?, description = ?, content = ?, date = ?, image = ?, link = ? WHERE id = ?');
                 $stmt->execute([$slugv, $title, $description, $content, $date, $image, $link, $id]);
                 echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
                 exit;
             } else {
-                // insert with provided id
                 $stmt = $pdo->prepare('INSERT INTO news (id, slug, title, description, content, date, image, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
                 $stmt->execute([$id, $slugv, $title, $description, $content, $date, $image, $link]);
                 echo json_encode(['success' => true, 'message' => 'Created', 'id' => $id]);
                 exit;
             }
         } else {
-            // enforce slug uniqueness for auto-increment insert
             $slugCheck = $pdo->prepare('SELECT id FROM news WHERE slug = ? LIMIT 1');
             $slugCheck->execute([$slugv]);
             if ($slugCheck->fetch()) {
@@ -122,7 +120,6 @@ try {
                 exit;
             }
 
-            // insert without id (auto-increment)
             $stmt = $pdo->prepare('INSERT INTO news (slug, title, description, content, date, image, link) VALUES (?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([$slugv, $title, $description, $content, $date, $image, $link]);
             $newId = (int)$pdo->lastInsertId();
@@ -132,7 +129,6 @@ try {
     }
 
     if ($method === 'DELETE') {
-        // accept JSON body or query param
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true);
         if (!is_array($data)) $data = $_GET;
@@ -161,7 +157,6 @@ try {
         }
     }
 
-    // If method not handled
     http_response_code(405);
     echo json_encode(['success' => false, 'message' => 'Method not allowed']);
 

@@ -29,31 +29,25 @@ export const buildFullSrc = (src: string, baseUrl: string): string => {
 
 export const stripBaseUrl = (src: string, baseUrl: string): string => {
   const trimmedSrc = src.trim();
-  
-  // If it already starts with photos/, return as is
+
   if (trimmedSrc.startsWith('photos/')) {
     return trimmedSrc;
   }
   
-  // Remove BASE_URL if present
   if (trimmedSrc.startsWith(baseUrl)) {
     return trimmedSrc.substring(baseUrl.length);
   }
   
-  // Remove http:// or https:// and domain if present
   if (trimmedSrc.startsWith('http://') || trimmedSrc.startsWith('https://')) {
     try {
       const url = new URL(trimmedSrc);
       const pathname = url.pathname;
-      // Remove leading slash if present
       return pathname.startsWith('/') ? pathname.substring(1) : pathname;
     } catch (e) {
-      // If URL parsing fails, return as is
       return trimmedSrc;
     }
   }
   
-  // Remove leading slash if present
   if (trimmedSrc.startsWith('/')) {
     return trimmedSrc.substring(1);
   }

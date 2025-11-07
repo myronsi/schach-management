@@ -23,7 +23,6 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onEdit, onDelete })
           <div className="flex-1">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">{media.title}</h3>
             
-            {/* Image Preview */}
             {media.src && (
               <div className="mb-3">
                 <img 

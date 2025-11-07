@@ -93,7 +93,6 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
     resetWizard();
   };
 
-  // If editing, skip wizard and show all fields
   if (editing) {
     return (
       <Dialog open={open} onOpenChange={handleClose}>
@@ -103,7 +102,6 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {/* Title */}
             <div>
               <Label htmlFor="title">Name der Galerie</Label>
               <Input
@@ -114,7 +112,6 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
               />
             </div>
 
-            {/* Src */}
             <div>
               <Label htmlFor="src">Hauptbild (Pfad)</Label>
               <Input
@@ -141,7 +138,6 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
               )}
             </div>
 
-            {/* Gallery Images Manager */}
             <div className="space-y-2">
               <Label className="text-base font-semibold">Bilder in dieser Galerie</Label>
               <p className="text-sm text-gray-500 mb-2">
@@ -175,7 +171,6 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
     );
   }
 
-  // Wizard for creating new media
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -192,7 +187,6 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
         </DialogHeader>
 
         <div className="py-4">
-          {/* Step 1: Title */}
           {step === 1 && (
             <div className="space-y-4">
               <div>
@@ -212,7 +206,6 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
             </div>
           )}
 
-          {/* Step 2: Choose Method */}
           {step === 2 && (
             <div className="space-y-4">
               <Label className="text-base">Wie möchten Sie Bilder hinzufügen?</Label>
@@ -259,7 +252,6 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
             </div>
           )}
 
-          {/* Step 3: Execute chosen method */}
           {step === 3 && selectedMethod === 'upload' && (
             <div className="space-y-4">
               <Label className="text-base">Dateien hochladen</Label>
@@ -379,7 +371,6 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
             </div>
           )}
 
-          {/* Step 4: Manage Images */}
           {step === 4 && (
             <div className="space-y-4">
               <div>

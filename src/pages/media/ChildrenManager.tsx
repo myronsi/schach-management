@@ -39,7 +39,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     <div>
       <Label className="text-base font-semibold">Bilder in der Galerie</Label>
       
-      {/* Existing Children List */}
       {childrenList.length > 0 && (
         <div className="space-y-2 mt-2 mb-4">
           {childrenList.map((child, index) => (
@@ -49,7 +48,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
             >
               <CardContent className="p-3">
                 <div className="flex items-start gap-2">
-                  {/* Order Control Buttons */}
                   <div className="flex flex-col gap-1">
                     <Button
                       type="button"
@@ -73,7 +71,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                     </Button>
                   </div>
 
-                  {/* Child Content */}
                   <div className="flex-1 space-y-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-700">
@@ -86,7 +83,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                       )}
                     </div>
                     
-                    {/* Child Thumbnail */}
                     {child.src && (
                       <img 
                         src={child.src} 
@@ -98,7 +94,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                       />
                     )}
 
-                    {/* Editable Fields */}
                     <div className="space-y-2">
                       <div>
                         <Label className="text-xs">Pfad zum Bild</Label>
@@ -125,7 +120,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                     </div>
                   </div>
 
-                  {/* Delete Button */}
                   <Button
                     type="button"
                     variant="ghost"
@@ -142,7 +136,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         </div>
       )}
 
-      {/* Add New Child Form */}
       <div className="space-y-2 p-4 bg-gray-50 rounded-md">
         <Label className="text-sm font-medium">Neues Bild hinzufügen</Label>
         <div>

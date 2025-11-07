@@ -82,14 +82,12 @@ export const MediaFormDialog: React.FC<MediaFormDialogProps> = ({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          {/* Src Field with Preview */}
           <div>
             <Label htmlFor="src">Src (interner Pfad)</Label>
             <Input
               id="src"
               value={form.src ? stripBaseUrl(form.src, BASE_URL) : ''}
               onChange={(e) => {
-                // Convert internal path to full URL for storage
                 const internalPath = e.target.value;
                 const fullUrl = internalPath ? buildFullSrc(internalPath, BASE_URL) : '';
                 onFormChange('src', fullUrl);
@@ -110,7 +108,6 @@ export const MediaFormDialog: React.FC<MediaFormDialogProps> = ({
             )}
           </div>
 
-          {/* Title Field */}
           <div>
             <Label htmlFor="title">Titel</Label>
             <Input
@@ -121,7 +118,6 @@ export const MediaFormDialog: React.FC<MediaFormDialogProps> = ({
             />
           </div>
 
-          {/* File Upload Section */}
           <FileUploadSection
             formTitle={form.title || ''}
             uploading={uploading}
@@ -133,7 +129,6 @@ export const MediaFormDialog: React.FC<MediaFormDialogProps> = ({
             onImportSingleFile={onImportSingleFile}
           />
 
-          {/* Children Manager */}
           <ChildrenManager
             childrenList={childrenList}
             newChildSrc={newChildSrc}

@@ -11,9 +11,10 @@ import TeamsAdmin from "./pages/teams/TeamsAdmin";
 import TournamentsAdmin from "./pages/tournaments/TournamentsAdmin";
 import MediaAdmin from "./pages/media/MediaAdmin";
 import FastInfoAdmin from "./pages/fastinfo/FastInfoAdmin";
+import DocumentsAdmin from "./pages/documents/DocumentsAdmin";
 import UsersAdmin from "./pages/users/UsersAdmin";
 import { Toaster } from "./components/ui/toaster";
-import { Calendar, Newspaper, History, Users, Trophy, Image, Zap, UserCog } from "lucide-react";
+import { Calendar, Newspaper, History, Users, Trophy, Image, Zap, UserCog, FileText } from "lucide-react";
 
 const queryClient = new QueryClient();
 
@@ -77,6 +78,13 @@ const Dashboard = () => {
       icon: Zap,
       path: '/fastinfo',
       color: 'bg-cyan-50 border-cyan-200 hover:bg-cyan-100'
+    },
+    {
+      title: 'Dokumente',
+      description: 'Verwalten Sie Dokumente und Dateien',
+      icon: FileText,
+      path: '/documents',
+      color: 'bg-teal-50 border-teal-200 hover:bg-teal-100'
     },
     {
       title: 'Benutzer',
@@ -143,6 +151,7 @@ const AppContent = () => {
         <Route path="/tournaments" element={<ProtectedRoute><TournamentsAdmin /></ProtectedRoute>} />
         <Route path="/media" element={<ProtectedRoute><MediaAdmin /></ProtectedRoute>} />
         <Route path="/fastinfo" element={<ProtectedRoute><FastInfoAdmin /></ProtectedRoute>} />
+        <Route path="/documents" element={<ProtectedRoute><DocumentsAdmin /></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute><UsersAdmin /></ProtectedRoute>} />
         <Route 
           path="/dashboard" 

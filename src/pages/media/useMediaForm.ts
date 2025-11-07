@@ -35,7 +35,6 @@ export const useMediaForm = () => {
     const updated = childrenList.filter((_, i) => i !== index);
     setChildrenList(updated);
     
-    // If we removed the first child, update parent src with new first child
     if (index === 0 && updated.length > 0) {
       setForm({
         ...form,
@@ -49,7 +48,6 @@ export const useMediaForm = () => {
     updated[index] = { ...updated[index], [field]: value };
     setChildrenList(updated);
     
-    // Only sync src to parent, not description (description stays with child)
     if (index === 0 && field === 'src') {
       setForm({
         ...form,
@@ -64,7 +62,6 @@ export const useMediaForm = () => {
     [updated[index - 1], updated[index]] = [updated[index], updated[index - 1]];
     setChildrenList(updated);
     
-    // If moving to first position, update parent src with this child
     if (index === 1) {
       setForm({
         ...form,
@@ -79,7 +76,6 @@ export const useMediaForm = () => {
     [updated[index], updated[index + 1]] = [updated[index + 1], updated[index]];
     setChildrenList(updated);
     
-    // If moving from first position, update parent src with new first child
     if (index === 0) {
       setForm({
         ...form,
@@ -110,7 +106,6 @@ export const useMediaForm = () => {
           description: successMsg
         });
         
-        // Automatically create children from uploaded files
         if (data.files && data.files.length > 0) {
           const newChildren: ChildItem[] = data.files.map((filePath: string) => ({
             src: BASE_URL + 'photos/' + filePath,
@@ -118,10 +113,8 @@ export const useMediaForm = () => {
             description: undefined
           }));
           
-          // Add new children to existing list
           setChildrenList([...childrenList, ...newChildren]);
           
-          // Set parent src to first uploaded file if not set
           if (!form.src || form.src.trim() === '') {
             setForm({ ...form, src: BASE_URL + 'photos/' + data.files[0] });
           }
@@ -214,15 +207,12 @@ export const useMediaForm = () => {
       description: undefined
     };
 
-    // Add to children list
     setChildrenList([...childrenList, newChild]);
     
-    // Set parent src to this file if not set
     if (!form.src || form.src.trim() === '') {
       setForm({ ...form, src: newChild.src });
     }
 
-    // Remove from scanned files
     setScannedFiles(scannedFiles.filter(f => f !== filePath));
     
     toast({ 

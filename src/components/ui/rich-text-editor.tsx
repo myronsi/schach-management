@@ -14,11 +14,9 @@ export interface RichTextEditorProps {
   forceLTR?: boolean;
 }
 
-// Helper: remove Unicode bidi control chars while preserving caret position
 const stripBidiMarksFromElementPreserveCaret = (el: HTMLElement) => {
   if (!el) return;
   const bidiRegex = /[\u200E\u200F\u202A-\u202E]/g;
-  // get caret offset
   const getCaretOffset = () => {
     const sel = document.getSelection();
     if (!sel || sel.rangeCount === 0) return 0;
@@ -50,7 +48,6 @@ const stripBidiMarksFromElementPreserveCaret = (el: HTMLElement) => {
       remaining -= len;
       current = walker.nextNode();
     }
-    // fallback: place at end
     range.selectNodeContents(el);
     range.collapse(false);
     const sel = document.getSelection();
@@ -62,10 +59,9 @@ const stripBidiMarksFromElementPreserveCaret = (el: HTMLElement) => {
 
   const beforeOffset = getCaretOffset();
   const html = el.innerHTML;
-  if (!bidiRegex.test(html)) return; // nothing to do
+  if (!bidiRegex.test(html)) return;
   const cleaned = html.replace(bidiRegex, '');
   el.innerHTML = cleaned;
-  // restore caret at approximately same character offset
   const newOffset = Math.min(beforeOffset, el.textContent ? el.textContent.length : 0);
   setCaretOffset(newOffset);
 };
@@ -81,13 +77,9 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const contentRef = React.useRef<HTMLDivElement | null>(null);
   const toolbarRef = React.useRef<HTMLDivElement | null>(null);
-
-  // Floating toolbar state
   const [toolbarVisible, setToolbarVisible] = React.useState(false);
   const [toolbarLeft, setToolbarLeft] = React.useState(0);
   const [toolbarTop, setToolbarTop] = React.useState(0);
-
-  // Link dialog state
   const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
   const [linkUrl, setLinkUrl] = React.useState('');
   const [linkText, setLinkText] = React.useState('');
@@ -95,7 +87,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const [linkClasses, setLinkClasses] = React.useState('underline hover:text-club-accent hover:underline');
   const [savedSelection, setSavedSelection] = React.useState<Range | null>(null);
 
-  // Update selection and position toolbar near selection
   const updateSelection = React.useCallback(() => {
     const sel = document.getSelection();
     const contentEl = contentRef.current;
@@ -103,7 +94,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       setToolbarVisible(false);
       return;
     }
-    // Ensure selection is inside the editor
     const range = sel.getRangeAt(0);
     const root = range.commonAncestorContainer;
     const isInside = contentEl.contains(root.nodeType === 1 ? (root as Element) : root.parentNode as Node);
@@ -117,28 +107,20 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       return;
     }
 
-    // compute bounding rect relative to containerRef
     const rect = range.getBoundingClientRect();
     const container = containerRef.current;
     if (!container) return setToolbarVisible(false);
     const cRect = container.getBoundingClientRect();
-
-    // Toolbar size and margins
     const margin = 8;
     const tbW = toolbarRef.current?.offsetWidth ?? 120;
     const tbH = toolbarRef.current?.offsetHeight ?? 36;
-
     const selLeft = rect.left - cRect.left + container.scrollLeft;
     const selTop = rect.top - cRect.top + container.scrollTop;
     const selBottom = rect.bottom - cRect.top + container.scrollTop;
     const selCenterX = selLeft + rect.width / 2;
-
-    // Try above by default; if not enough space above, place below
     const spaceAbove = selTop;
     const canPlaceAbove = spaceAbove >= tbH + margin;
     let top = canPlaceAbove ? selTop - (tbH + margin) : selBottom + margin;
-
-    // Center horizontally over selection and clamp within container
     let left = selCenterX - tbW / 2;
     left = Math.max(margin, Math.min(left, cRect.width - tbW - margin));
 
@@ -147,7 +129,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     setToolbarVisible(true);
   }, []);
 
-  // Formatting using execCommand with fallback to manual range wrap
   const wrapSelection = (tag: 'b' | 'i' | 'u') => {
     const cmd = tag === 'b' ? 'bold' : tag === 'i' ? 'italic' : 'underline';
     try {
@@ -166,7 +147,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       }
     }
 
-    // update stored HTML from the editable div
     requestAnimationFrame(() => {
       const el = contentRef.current;
       if (!el) return;
@@ -176,7 +156,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     });
   };
 
-  // Open link dialog
   const openLinkDialog = () => {
     const sel = document.getSelection();
     if (!sel || sel.rangeCount === 0) return;
@@ -184,7 +163,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     const range = sel.getRangeAt(0);
     setSavedSelection(range.cloneRange());
     
-    // Check if selection is within a link
     let node: Node | null = range.commonAncestorContainer;
     let linkElement: HTMLAnchorElement | null = null;
     
@@ -197,13 +175,11 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     }
     
     if (linkElement) {
-      // Editing existing link
       setLinkUrl(linkElement.getAttribute('href') || '');
       setLinkText(linkElement.textContent || '');
       setLinkTarget(linkElement.getAttribute('target') || '_blank');
       setLinkClasses(linkElement.getAttribute('class') || 'underline hover:text-club-accent hover:underline');
     } else {
-      // Creating new link
       setLinkUrl('');
       setLinkText(sel.toString() || '');
       setLinkTarget('_blank');
@@ -214,12 +190,10 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     setToolbarVisible(false);
   };
 
-  // Remove link but keep text
   const removeLink = () => {
     const el = contentRef.current;
     if (!el) return;
     
-    // Restore selection
     if (savedSelection) {
       const sel = document.getSelection();
       if (sel) {
@@ -233,7 +207,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     
     const range = sel.getRangeAt(0);
     
-    // Find the link element
     let node: Node | null = range.commonAncestorContainer;
     let linkElement: HTMLAnchorElement | null = null;
     
@@ -246,7 +219,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     }
     
     if (linkElement) {
-      // Replace link with its text content
       const textNode = document.createTextNode(linkElement.textContent || '');
       linkElement.parentNode?.replaceChild(textNode, linkElement);
       
@@ -260,14 +232,12 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     el.focus();
   };
 
-  // Insert or update link
   const insertLink = () => {
     if (!linkUrl || !linkText) return;
     
     const el = contentRef.current;
     if (!el) return;
     
-    // Restore selection
     if (savedSelection) {
       const sel = document.getSelection();
       if (sel) {
@@ -281,7 +251,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     
     const range = sel.getRangeAt(0);
     
-    // Check if we're editing an existing link
     let node: Node | null = range.commonAncestorContainer;
     let linkElement: HTMLAnchorElement | null = null;
     
@@ -312,7 +281,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       range.deleteContents();
       range.insertNode(link);
       
-      // Move cursor after link
       range.setStartAfter(link);
       range.collapse(true);
       sel.removeAllRanges();
@@ -327,7 +295,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     el.focus();
   };
 
-  // Effect: enforce LTR on mount and when flag changes
   React.useEffect(() => {
     if (!forceLTR) return;
     let cancelled = false;
@@ -347,7 +314,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     return () => { cancelled = true; };
   }, [forceLTR]);
 
-  // Effect: sync prop value into editor only when different from current DOM
   React.useEffect(() => {
     const el = contentRef.current;
     if (!el) return;
@@ -365,9 +331,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         onInput={() => {
           const el = contentRef.current;
           if (!el) return;
-          // strip bidi marks if present while preserving caret
           stripBidiMarksFromElementPreserveCaret(el);
-          // propagate change
           onChange(el.innerHTML.replace(/[\u200E\u200F\u202A-\u202E]/g, ''));
         }}
         onMouseUp={updateSelection}

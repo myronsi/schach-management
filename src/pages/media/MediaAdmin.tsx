@@ -7,7 +7,6 @@ import { Plus } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
-// Import modular files
 import type { MediaItem, AlertDialogState, ConfirmDialogState } from './types';
 import { fetchMedia, fetchMediaById, deleteMedia, postMedia } from './api';
 import { useMediaForm } from './useMediaForm';
@@ -40,7 +39,6 @@ const MediaAdmin: React.FC = () => {
     onConfirm: () => {}
   });
 
-  // Use the custom form hook
   const mediaForm = useMediaForm();
 
   const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
@@ -89,7 +87,6 @@ const MediaAdmin: React.FC = () => {
       setEditing(full);
       mediaForm.resetForm();
       
-      // Convert internal paths to full URLs for editing
       const fullSrc = buildFullSrc(full.src, BASE_URL);
       mediaForm.setForm({ 
         ...full,
@@ -97,7 +94,6 @@ const MediaAdmin: React.FC = () => {
       });
       
       const parsedChildren = parseChildren(full.children);
-      // Convert children src to full URLs for editing
       const childrenWithFullUrls = parsedChildren.map(child => ({
         ...child,
         src: buildFullSrc(child.src, BASE_URL)
@@ -112,10 +108,8 @@ const MediaAdmin: React.FC = () => {
   const handleSave = () => {
     let processedChildren: any[] = [...mediaForm.childrenList];
     
-    // Strip BASE_URL from parent src before saving
     const internalSrc = mediaForm.form.src ? stripBaseUrl(mediaForm.form.src, BASE_URL) : '';
     
-    // If no children exist, automatically create first child matching parent
     if (processedChildren.length === 0 && internalSrc && mediaForm.form.title) {
       processedChildren = [{
         src: internalSrc,
@@ -123,7 +117,6 @@ const MediaAdmin: React.FC = () => {
         description: undefined
       }];
     } else {
-      // Sync parent src with first child before saving (description stays with child)
       processedChildren = processedChildren.map((child, index) => {
         if (index === 0) {
           return {
@@ -131,7 +124,6 @@ const MediaAdmin: React.FC = () => {
             src: internalSrc || stripBaseUrl(child.src, BASE_URL)
           };
         }
-        // Strip BASE_URL from all children
         return {
           ...child,
           src: stripBaseUrl(child.src, BASE_URL)
@@ -141,8 +133,8 @@ const MediaAdmin: React.FC = () => {
 
     const payload = { 
       ...mediaForm.form,
-      src: internalSrc, // Save internal path instead of full URL
-      description: undefined, // Parent has no description
+      src: internalSrc,
+      description: undefined,
       children: JSON.stringify(processedChildren)
     } as any;
     

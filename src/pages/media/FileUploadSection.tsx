@@ -30,7 +30,6 @@ export const FileUploadSection: React.FC<FileUploadSectionProps> = ({
 }) => {
   return (
     <div className="space-y-4">
-      {/* File Upload */}
       <div>
         <Label htmlFor="file-upload" className="block mb-2">
           Dateien hochladen
@@ -55,7 +54,6 @@ export const FileUploadSection: React.FC<FileUploadSectionProps> = ({
         )}
       </div>
 
-      {/* Scan Directory */}
       <div>
         <Label className="block mb-2">Verzeichnis scannen</Label>
         <Button
@@ -70,7 +68,6 @@ export const FileUploadSection: React.FC<FileUploadSectionProps> = ({
         </Button>
       </div>
 
-      {/* Scanned Files Grid */}
       {scannedFiles.length > 0 && (
         <div>
           <Label className="block mb-2">

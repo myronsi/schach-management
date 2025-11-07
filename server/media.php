@@ -12,20 +12,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Read env file
 $env = [];
 $envFile = __DIR__ . '/.env';
 if (file_exists($envFile)) $env = parse_ini_file($envFile);
 
-// Upload directory configuration
 $uploadBaseDir = __DIR__ . '/../photos/';
 
-// Ensure base upload directory exists
 if (!is_dir($uploadBaseDir)) {
     mkdir($uploadBaseDir, 0755, true);
 }
 
-// List files in directory recursively
 function listFilesInDirectory($directory, $relativePath = '') {
     $files = [];
     
@@ -41,7 +37,6 @@ function listFilesInDirectory($directory, $relativePath = '') {
         $relPath = $relativePath ? $relativePath . '/' . $item : $item;
         
         if (is_dir($fullPath)) {
-            // Recursively get files from subdirectory
             $subFiles = listFilesInDirectory($fullPath, $relPath);
             $files = array_merge($files, $subFiles);
         } else {
@@ -73,7 +68,6 @@ try {
     if ($method === 'GET') {
         $action = $input['action'] ?? '';
         
-        // Scan directory for files
         if ($action === 'scan') {
             $title = $input['title'] ?? '';
             if (!$title) {
@@ -117,7 +111,6 @@ try {
             exit;
         }
 
-        // no id -> return list of all media
         $stmt = $pdo->query('SELECT id, src, title, description, children FROM media ORDER BY id DESC');
         $rows = $stmt->fetchAll();
         echo json_encode($rows);
@@ -125,7 +118,6 @@ try {
     }
 
     if ($method === 'POST') {
-        // Check if this is a file upload
         if (!empty($_FILES)) {
             $action = $_POST['action'] ?? '';
             if ($action === 'upload') {
@@ -136,7 +128,6 @@ try {
                     exit;
                 }
                 
-                // Create target directory
                 $targetDir = rtrim($uploadBaseDir, '/') . '/' . $title;
                 if (!is_dir($targetDir)) {
                     if (!mkdir($targetDir, 0755, true)) {
@@ -150,7 +141,6 @@ try {
                     }
                 }
                 
-                // Allowed file extensions
                 $allowedExtensions = array('jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'pdf');
                 
                 $uploadedFiles = [];
@@ -163,13 +153,11 @@ try {
                         $fileNameCmps = explode(".", $fileName);
                         $fileExtension = strtolower(end($fileNameCmps));
                         
-                        // Check file extension
                         if (!in_array($fileExtension, $allowedExtensions)) {
                             $errors[] = "File type not allowed: $fileName (.$fileExtension)";
                             continue;
                         }
                         
-                        // Generate unique filename to avoid collisions
                         $newFileName = md5(time() . $fileName . rand()) . '.' . $fileExtension;
                         $destPath = $targetDir . '/' . $newFileName;
                         
@@ -208,19 +196,16 @@ try {
             }
         }
         
-        // accept JSON body or form-encoded
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true);
         if (!is_array($data)) $data = $_POST;
 
-        // Required fields: src, title
         $id = isset($data['id']) && $data['id'] !== '' ? (int)$data['id'] : null;
         $src = trim($data['src'] ?? '');
         $title = trim($data['title'] ?? '');
         $description = trim($data['description'] ?? '');
         $children = $data['children'] ?? '[]';
 
-        // Validate children is valid JSON
         if (is_array($children)) {
             $children = json_encode($children, JSON_UNESCAPED_SLASHES);
         } else if (is_string($children)) {
@@ -230,7 +215,6 @@ try {
                 echo json_encode(['success' => false, 'message' => 'Invalid JSON in children field']);
                 exit;
             }
-            // Re-encode to ensure proper formatting
             $children = json_encode($decoded, JSON_UNESCAPED_SLASHES);
         }
 
@@ -241,26 +225,22 @@ try {
         }
 
         if ($id) {
-            // if id provided, check if row exists
             $check = $pdo->prepare('SELECT id FROM media WHERE id = ? LIMIT 1');
             $check->execute([$id]);
             $exists = (bool)$check->fetch();
 
             if ($exists) {
-                // update existing
                 $stmt = $pdo->prepare('UPDATE media SET src = ?, title = ?, description = ?, children = ? WHERE id = ?');
                 $stmt->execute([$src, $title, $description, $children, $id]);
                 echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
                 exit;
             } else {
-                // insert with provided id
                 $stmt = $pdo->prepare('INSERT INTO media (id, src, title, description, children) VALUES (?, ?, ?, ?, ?)');
                 $stmt->execute([$id, $src, $title, $description, $children]);
                 echo json_encode(['success' => true, 'message' => 'Created', 'id' => $id]);
                 exit;
             }
         } else {
-            // insert without id (auto-increment)
             $stmt = $pdo->prepare('INSERT INTO media (src, title, description, children) VALUES (?, ?, ?, ?)');
             $stmt->execute([$src, $title, $description, $children]);
             $newId = (int)$pdo->lastInsertId();
@@ -270,7 +250,6 @@ try {
     }
 
     if ($method === 'DELETE') {
-        // accept JSON body or query param
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true);
         if (!is_array($data)) $data = $_GET;
@@ -289,7 +268,6 @@ try {
         exit;
     }
 
-    // If method not handled
     http_response_code(405);
     echo json_encode(['success' => false, 'message' => 'Method not allowed']);
 
