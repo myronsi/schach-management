@@ -15,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { httpUtils } from '@/lib/auth-utils';
 
 const API = 'https://sc-laufenburg.de/api/tournaments.php';
 
@@ -44,11 +45,7 @@ const fetchTournaments = async (type?: string): Promise<TournamentItem[]> => {
 };
 
 const postTournament = async (payload: any) => {
-  const res = await fetch(API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  const res = await httpUtils.post(API, payload);
   const data = await res.json();
   if (!res.ok || data.success === false) {
     throw new Error(data.message || 'Failed to save');
@@ -205,11 +202,7 @@ const TournamentsAdmin: React.FC = () => {
       `Möchten Sie das Turnier "${typeName} ${item.year}" wirklich löschen?`,
       async () => {
         try {
-          const res = await fetch(API, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: item.id }),
-          });
+          const res = await httpUtils.delete(API, { id: item.id });
           
           if (res.ok) {
             queryClient.invalidateQueries({ queryKey: ['tournaments'] });
