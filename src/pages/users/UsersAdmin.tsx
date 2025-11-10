@@ -11,14 +11,13 @@ import { useToast } from '@/hooks/use-toast';
 import { Edit, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { httpUtils } from '@/lib/auth-utils';
 
 const API = 'https://sc-laufenburg.de/api/authm.php';
 
 interface User {
   username: string;
   status: string;
-  session_id: string;
-  session_ip: string;
   password_status: string;
 }
 
@@ -29,11 +28,7 @@ const fetchUsers = async (): Promise<User[]> => {
 };
 
 const postUser = async (payload: any) => {
-  const res = await fetch(API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  const res = await httpUtils.post(API, payload);
   const data = await res.json();
   if (!res.ok || data.success === false) {
     throw new Error(data.message || 'Failed to save');
@@ -53,14 +48,6 @@ const UsersAdmin: React.FC = () => {
   const [editing, setEditing] = useState<User | null>(null);
   const [form, setForm] = useState<Partial<User & { password: string }>>({});
   const [showPassword, setShowPassword] = useState(false);
-
-  const generateUUID = (): string => {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-  };
   
   const [alertDialog, setAlertDialog] = useState<{
     open: boolean;
@@ -112,7 +99,7 @@ const UsersAdmin: React.FC = () => {
 
   const hasChanges = () => {
     if (!editing) return true;
-    const keys: (keyof User)[] = ['username', 'status', 'password_status', 'session_id', 'session_ip'];
+    const keys: (keyof User)[] = ['username', 'status', 'password_status'];
     for (const k of keys) {
       const fVal = (form as any)[k] ?? '';
       const eVal = (editing as any)[k] ?? '';
@@ -159,8 +146,7 @@ const UsersAdmin: React.FC = () => {
     setForm({ 
       status: 'user',
       password_status: 'unchanged',
-      password: '',
-      session_id: generateUUID()
+      password: ''
     });
     setShowPassword(false);
     setOpen(true);
@@ -184,18 +170,6 @@ const UsersAdmin: React.FC = () => {
       is_update: !!editing
     };
     
-    if (form.session_id && String(form.session_id).trim() !== '') {
-      payload.session_id = form.session_id;
-    } else {
-      payload.session_id = null;
-    }
-
-    if (form.session_ip && String(form.session_ip).trim() !== '') {
-      payload.session_ip = form.session_ip;
-    } else {
-      payload.session_ip = null;
-    }
-    
     if (form.password && String(form.password).trim() !== '') {
       payload.password = form.password;
     }
@@ -209,11 +183,7 @@ const UsersAdmin: React.FC = () => {
       `Möchten Sie den Benutzer "${user.username}" wirklich löschen?`,
       async () => {
         try {
-          const res = await fetch(API, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: user.username }),
-          });
+          const res = await httpUtils.delete(API, { username: user.username });
           
           if (res.ok) {
             queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -321,24 +291,6 @@ const UsersAdmin: React.FC = () => {
                             {getPasswordStatusLabel(user.password_status)}
                           </span>
                         </div>
-                        <div className="text-sm text-gray-600">
-                          <span className="font-medium">Session ID:</span> {user.session_id || 'Nicht angemeldet'}
-                        </div>
-                        {user.session_ip && (
-                          <div className="text-sm text-gray-600">
-                            <span className="font-medium">Session IP(s):</span>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {user.session_ip.split(',').map((ip, idx) => (
-                                <span
-                                  key={idx}
-                                  className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono bg-gray-100 text-gray-700"
-                                >
-                                  {ip.trim()}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
                       </div>
                       
                       <div className="flex flex-col sm:flex-row gap-2 sm:ml-4 w-full sm:w-auto">
@@ -405,9 +357,7 @@ const UsersAdmin: React.FC = () => {
                           setForm({ 
                             ...form, 
                             password: newPassword,
-                            password_status: 'unchanged',
-                            session_id: generateUUID(),
-                            session_ip: ''
+                            password_status: 'unchanged'
                           });
                         } else {
                           setForm({ 
@@ -467,60 +417,6 @@ const UsersAdmin: React.FC = () => {
                   </Select>
                   <p className="text-xs text-gray-500">
                     "Unverändert" = Benutzer muss das Passwort beim ersten Login ändern. Alle Passwörter werden sicher gehasht gespeichert.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="user-session-id">Session ID</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="user-session-id"
-                      placeholder="Wird beim Login generiert"
-                      value={form.session_id || ''}
-                      onChange={(e) => setForm({ 
-                        ...form, 
-                        session_id: e.target.value,
-                        session_ip: ''
-                      })}
-                      className="flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setForm({ 
-                        ...form, 
-                        session_id: generateUUID(),
-                        session_ip: ''
-                      })}
-                    >
-                      Neu generieren
-                    </Button>
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Wird automatisch beim Login generiert. Änderung beendet alle aktiven Sessions.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="user-session-ip">Session IP(s)</Label>
-                  {form.session_ip && form.session_ip.trim() !== '' ? (
-                    <div className="flex flex-wrap gap-1 p-3 border rounded-md bg-gray-50">
-                      {form.session_ip.split(',').map((ip, idx) => (
-                        <span
-                          key={idx}
-                          className="inline-flex items-center px-2 py-1 rounded text-sm font-mono bg-white border text-gray-700"
-                        >
-                          {ip.trim()}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-3 border rounded-md bg-gray-50 text-sm text-gray-500">
-                      Keine aktiven Sessions
-                    </div>
-                  )}
-                  <p className="text-xs text-gray-500">
-                    IP-Adressen des Benutzers (bis zu 5 letzte IPs, automatisch verwaltet)
                   </p>
                 </div>
 

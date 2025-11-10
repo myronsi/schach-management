@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { DatePicker } from '@/components/ui/date-picker';
 import { TypeSelector } from '@/components/ui/type-selector';
 import { AlertMessage } from '@/components/ui/alert-message';
+import { httpUtils } from '@/lib/auth-utils';
 
 type FormData = {
   title: string;
@@ -242,11 +243,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
       }
 
       for (const event of eventsToCreate) {
-        const res = await fetch(`${API}?action=create`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(event),
-        });
+        const res = await httpUtils.post(`${API}?action=create`, event);
         
         if (!res.ok) {
           const body = await res.json();

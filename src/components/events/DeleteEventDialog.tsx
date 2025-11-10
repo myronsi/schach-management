@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { DatePicker } from '@/components/ui/date-picker';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { httpUtils } from '@/lib/auth-utils';
 
 type FormData = {
   title?: string;
@@ -179,11 +180,7 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
           if (formData.title) requestBody.title = formData.title;
           if (formData.date) requestBody.date = formData.date;
           
-          const res = await fetch(`${API}?action=delete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-          });
+          const res = await httpUtils.post(`${API}?action=delete`, requestBody);
           const result = await res.json();
           if (res.ok) {
             setResponse(result);

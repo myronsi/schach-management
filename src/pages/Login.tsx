@@ -153,21 +153,3 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 };
 
 export default Login;
-
-export const isUserLoggedIn = (): boolean => {
-  return localStorage.getItem('auth_username') !== null && localStorage.getItem('auth_session_id') !== null;
-};
-
-export const getLoggedInUser = (): string | null => {
-  return localStorage.getItem('auth_username');
-};
-
-export const logoutUser = (): void => {
-  localStorage.removeItem('auth_username');
-  localStorage.removeItem('auth_session_id');
-  localStorage.removeItem('loginTimestamp');
-};
-
-export const getLoginTimestamp = (): string | null => {
-  return localStorage.getItem('loginTimestamp');
-};

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
+import { httpUtils } from '@/lib/auth-utils';
 
 const API = 'https://sc-laufenburg.de/api/documents.php';
 
@@ -25,11 +26,7 @@ interface UploadedFile {
 }
 
 const postDocument = async (payload: any) => {
-  const res = await fetch(API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  const res = await httpUtils.post(API, payload);
   const data = await res.json();
   if (!res.ok || data.success === false) {
     throw new Error(data.message || 'Failed to save');
@@ -104,9 +101,9 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
     }
 
     try {
-      const res = await fetch(API, {
+      const res = await httpUtils.authenticatedFetch(API, {
         method: 'POST',
-        body: formData,
+        body: formData
       });
       const data = await res.json();
 

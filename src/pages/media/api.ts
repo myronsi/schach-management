@@ -1,5 +1,6 @@
 import type { MediaItem } from './types';
 import { API } from './constants';
+import { httpUtils } from '@/lib/auth-utils';
 
 export const fetchMedia = async (): Promise<MediaItem[]> => {
   const res = await fetch(API);
@@ -14,11 +15,7 @@ export const fetchMediaById = async (id: number): Promise<MediaItem> => {
 };
 
 export const postMedia = async (payload: any) => {
-  const res = await fetch(API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  const res = await httpUtils.post(API, payload);
   const data = await res.json();
   if (!res.ok || data.success === false) {
     throw new Error(data.message || 'Failed to save');
@@ -27,11 +24,7 @@ export const postMedia = async (payload: any) => {
 };
 
 export const deleteMedia = async (id: number) => {
-  const res = await fetch(API, {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id }),
-  });
+  const res = await httpUtils.delete(API, { id });
   return res.ok;
 };
 
@@ -44,9 +37,9 @@ export const uploadFiles = async (title: string, files: FileList) => {
     formData.append(`file${i}`, files[i]);
   }
 
-  const res = await fetch(API, {
+  const res = await httpUtils.authenticatedFetch(API, {
     method: 'POST',
-    body: formData,
+    body: formData
   });
 
   return res.json();

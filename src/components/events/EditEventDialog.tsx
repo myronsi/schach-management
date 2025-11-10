@@ -9,6 +9,7 @@ import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TypeSelector } from '@/components/ui/type-selector';
 import { TimeInput } from '@/components/ui/time-input';
+import { httpUtils } from '@/lib/auth-utils';
 
 type FormData = {
   title: string;
@@ -104,13 +105,9 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
       if (selectedType) updates.type = selectedType;
       updates.is_recurring = isRecurring ? 1 : 0;
 
-      const res = await fetch(`${API}?action=editByTitle`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          title: data.title,
-          updates: updates
-        }),
+      const res = await httpUtils.post(`${API}?action=editByTitle`, { 
+        title: data.title,
+        updates: updates
       });
       const result = await res.json();
       if (res.ok) {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { httpUtils } from '@/lib/auth-utils';
 
 const API = 'https://sc-laufenburg.de/api/documents.php';
 
@@ -39,11 +40,7 @@ export const useDocumentDelete = () => {
       if (deleteType === 'hard') {
         body.hard = true;
       } else if (deleteType === 'deactivate') {
-        const res = await fetch(API, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: item.id, is_active: false }),
-        });
+        const res = await httpUtils.post(API, { id: item.id, is_active: false });
         const data = await res.json();
         
         if (res.ok && data.success) {
@@ -55,11 +52,7 @@ export const useDocumentDelete = () => {
         return;
       }
       
-      const res = await fetch(endpoint, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const res = await httpUtils.delete(endpoint, body);
       
       const data = await res.json();
       

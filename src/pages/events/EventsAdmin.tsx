@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import CreateEventDialog from '@/components/events/CreateEventDialog';
 import EditEventDialog from '@/components/events/EditEventDialog';
 import DeleteEventDialog from '@/components/events/DeleteEventDialog';
+import { httpUtils } from '@/lib/auth-utils';
 
 const API = 'https://sc-laufenburg.de/api/events.php';
 
@@ -187,11 +188,7 @@ const EventsList: React.FC = () => {
     if (!editingId) return;
     
     try {
-      const res = await fetch(`${API}?action=edit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: editingId, ...editForm }),
-      });
+      const res = await httpUtils.post(`${API}?action=edit`, { id: editingId, ...editForm });
       
       if (res.ok) {
         await loadEvents();
@@ -213,11 +210,7 @@ const EventsList: React.FC = () => {
       `Möchten Sie das Ereignis "${title}" wirklich löschen?`,
       async () => {
         try {
-          const res = await fetch(`${API}?action=delete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id }),
-          });
+          const res = await httpUtils.post(`${API}?action=delete`, { id });
           
           if (res.ok) {
             await loadEvents();

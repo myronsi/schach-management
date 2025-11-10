@@ -11,6 +11,7 @@ import * as LucideIcons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { httpUtils } from '@/lib/auth-utils';
 
 const API = 'https://sc-laufenburg.de/api/fastinfo.php';
 
@@ -29,11 +30,7 @@ const fetchFastInfo = async (): Promise<FastInfoItem[]> => {
 };
 
 const postFastInfo = async (payload: any) => {
-  const res = await fetch(API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  const res = await httpUtils.post(API, payload);
   const data = await res.json();
   if (!res.ok || data.success === false) {
     throw new Error(data.message || 'Failed to save');
@@ -173,11 +170,7 @@ const FastInfoAdmin: React.FC = () => {
       `Möchten Sie "${item.label}" wirklich löschen?`,
       async () => {
         try {
-          const res = await fetch(API, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: item.id }),
-          });
+          const res = await httpUtils.delete(API, { id: item.id });
           
           if (res.ok) {
             queryClient.invalidateQueries({ queryKey: ['fastinfo'] });
