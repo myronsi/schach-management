@@ -384,7 +384,7 @@ const UsersAdmin: React.FC = () => {
                   </div>
                   {editing && (
                     <p className="text-xs text-gray-500">
-                      Lassen Sie das Feld leer, wenn Sie das Passwort nicht ändern möchten. Bei Änderung werden alle aktiven Sessions beendet.
+                      Lassen Sie das Feld leer, wenn Sie das Passwort nicht ändern möchten.
                     </p>
                   )}
                 </div>
