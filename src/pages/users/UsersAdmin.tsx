@@ -382,11 +382,6 @@ const UsersAdmin: React.FC = () => {
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  {editing && (
-                    <p className="text-xs text-gray-500">
-                      Lassen Sie das Feld leer, wenn Sie das Passwort nicht ändern möchten.
-                    </p>
-                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -421,7 +416,7 @@ const UsersAdmin: React.FC = () => {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-gray-500">
-                    "Unverändert" = Benutzer muss das Passwort beim ersten Login ändern. Alle Passwörter werden sicher gehasht gespeichert.
+                    "Unverändert" = Benutzer muss das Passwort beim ersten Login ändern. "Geändert" = Benutzer kann sich normal mit erstelltem Passwort anmelden.
                   </p>
                 </div>
 
