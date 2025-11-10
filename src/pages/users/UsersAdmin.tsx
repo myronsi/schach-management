@@ -22,8 +22,13 @@ interface User {
 }
 
 const fetchUsers = async (): Promise<User[]> => {
-  const res = await fetch(API);
-  if (!res.ok) throw new Error('Failed to fetch users');
+  const res = await httpUtils.authenticatedFetch(API);
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Access denied');
+    }
+    throw new Error('Failed to fetch users');
+  }
   return res.json();
 };
 

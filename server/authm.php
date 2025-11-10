@@ -1,9 +1,11 @@
 <?php
 
+require_once __DIR__ . '/auth-middleware.php';
+
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS, DELETE, PUT, PATCH');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Access-Control-Allow-Credentials: false');
 header('Content-Type: application/json; charset=utf-8');
 
@@ -13,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 $env = [];
-$envFile = __DIR__ . '/.env';
+$envFile = __DIR__ . '/.env.auth';
 if (file_exists($envFile)) $env = parse_ini_file($envFile);
 
 $host = $env['host'] ?? '';
@@ -35,8 +37,13 @@ try {
     $method = $_SERVER['REQUEST_METHOD'];
 
     if ($method === 'GET') {
+        $user = requireAuthentication(['admin']);
+        error_log("Authenticated user '{$user['username']}' performing GET on authm.php");
+    }
+
+    if ($method === 'GET') {
         if ($username) {
-            $stmt = $pdo->prepare('SELECT username, status, session_id, session_ip, password_status FROM users WHERE username = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT username, status, password_status FROM users WHERE username = ? LIMIT 1');
             $stmt->execute([$username]);
             $row = $stmt->fetch();
             if (!$row) {
@@ -48,13 +55,15 @@ try {
             exit;
         }
 
-        $stmt = $pdo->query('SELECT username, status, session_id, session_ip, password_status FROM users ORDER BY username ASC');
+        $stmt = $pdo->query('SELECT username, status, password_status FROM users ORDER BY username ASC');
         $rows = $stmt->fetchAll();
         echo json_encode($rows);
         exit;
     }
 
     if ($method === 'POST') {
+        requireAuthentication(['admin']);
+        
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true);
         if (!is_array($data)) $data = $_POST;
@@ -63,8 +72,6 @@ try {
         $passwordValue = trim($data['password'] ?? '');
         $statusValue = trim($data['status'] ?? 'user');
         $passwordStatusValue = trim($data['password_status'] ?? 'unchanged');
-        $sessionId = $data['session_id'] ?? null;
-        $sessionIp = $data['session_ip'] ?? null;
         
         $isUpdate = isset($data['is_update']) && $data['is_update'] === true;
 
@@ -87,8 +94,8 @@ try {
 
             if ($passwordValue !== '') {
                 $hashedPassword = password_hash($passwordValue, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ?, session_id = ?, session_ip = ? WHERE username = ?');
-                $stmt->execute([$hashedPassword, $statusValue, $passwordStatusValue, $sessionId, $sessionIp, $usernameValue]);
+                $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ? WHERE username = ?');
+                $stmt->execute([$hashedPassword, $statusValue, $passwordStatusValue, $usernameValue]);
             } else {
                 $existingPassword = $exists['password'];
                 
@@ -96,11 +103,11 @@ try {
                 
                 if (!$isHashed && $existingPassword !== '') {
                     $hashedPassword = password_hash($existingPassword, PASSWORD_DEFAULT);
-                    $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ?, session_id = ?, session_ip = ? WHERE username = ?');
-                    $stmt->execute([$hashedPassword, $statusValue, $passwordStatusValue, $sessionId, $sessionIp, $usernameValue]);
+                    $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ? WHERE username = ?');
+                    $stmt->execute([$hashedPassword, $statusValue, $passwordStatusValue, $usernameValue]);
                 } else {
-                    $stmt = $pdo->prepare('UPDATE users SET status = ?, password_status = ?, session_id = ?, session_ip = ? WHERE username = ?');
-                    $stmt->execute([$statusValue, $passwordStatusValue, $sessionId, $sessionIp, $usernameValue]);
+                    $stmt = $pdo->prepare('UPDATE users SET status = ?, password_status = ? WHERE username = ?');
+                    $stmt->execute([$statusValue, $passwordStatusValue, $usernameValue]);
                 }
             }
             
@@ -122,24 +129,9 @@ try {
             }
 
             $hashedPassword = password_hash($passwordValue, PASSWORD_DEFAULT);
-            
-            if (!$sessionId) {
-                $sessionId = sprintf(
-                    '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-                    mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-                    mt_rand(0, 0xffff),
-                    mt_rand(0, 0x0fff) | 0x4000,
-                    mt_rand(0, 0x3fff) | 0x8000,
-                    mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
-                );
-            }
 
-            if ($sessionIp === null) {
-                $sessionIp = '';
-            }
-
-            $stmt = $pdo->prepare('INSERT INTO users (username, password, status, session_id, session_ip, password_status) VALUES (?, ?, ?, ?, ?, ?)');
-            $stmt->execute([$usernameValue, $hashedPassword, $statusValue, $sessionId, $sessionIp, $passwordStatusValue]);
+            $stmt = $pdo->prepare('INSERT INTO users (username, password, status, password_status) VALUES (?, ?, ?, ?)');
+            $stmt->execute([$usernameValue, $hashedPassword, $statusValue, $passwordStatusValue]);
             
             echo json_encode(['success' => true, 'message' => 'Created', 'username' => $usernameValue]);
             exit;
@@ -147,6 +139,8 @@ try {
     }
 
     if ($method === 'DELETE') {
+        requireAuthentication(['admin']);
+        
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true);
         if (!is_array($data)) $data = $_GET;

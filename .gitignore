@@ -25,6 +25,7 @@ dist-ssr
 
 # local files
 .env
+.env.*
 .local.env
 package-lock.json
 .htaccess
