@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Bold, Italic, Underline, Link as LinkIcon } from 'lucide-react';
+import { Bold, Italic, Underline, Link as LinkIcon, List, ListOrdered } from 'lucide-react';
 
 export interface RichTextEditorProps {
   id?: string;
@@ -120,7 +120,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     const selCenterX = selLeft + rect.width / 2;
     const spaceAbove = selTop;
     const canPlaceAbove = spaceAbove >= tbH + margin;
-    let top = canPlaceAbove ? selTop - (tbH + margin) : selBottom + margin;
+    const top = canPlaceAbove ? selTop - (tbH + margin) : selBottom + margin;
     let left = selCenterX - tbW / 2;
     left = Math.max(margin, Math.min(left, cRect.width - tbW - margin));
 
@@ -133,7 +133,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     const cmd = tag === 'b' ? 'bold' : tag === 'i' ? 'italic' : 'underline';
     try {
       document.execCommand(cmd);
-    } catch (e) {
+    } catch {
       const sel = document.getSelection();
       if (!sel || sel.rangeCount === 0) return;
       const range = sel.getRangeAt(0);
@@ -144,6 +144,38 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         const frag = range.extractContents();
         el.appendChild(frag);
         range.insertNode(el);
+      }
+    }
+
+    requestAnimationFrame(() => {
+      const el = contentRef.current;
+      if (!el) return;
+      onChange(el.innerHTML);
+      updateSelection();
+      el.focus();
+    });
+  };
+
+  const toggleList = (listType: 'ol' | 'ul') => {
+    const cmd = listType === 'ol' ? 'insertOrderedList' : 'insertUnorderedList';
+    try {
+      document.execCommand(cmd);
+    } catch {
+      // Fallback implementation
+      const sel = document.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      const listEl = document.createElement(listType);
+      const listItem = document.createElement('li');
+      try {
+        const frag = range.extractContents();
+        listItem.appendChild(frag);
+        listEl.appendChild(listItem);
+        range.insertNode(listEl);
+      } catch {
+        // If extraction fails, just create an empty list item
+        listEl.appendChild(listItem);
+        range.insertNode(listEl);
       }
     }
 
@@ -351,6 +383,8 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           <Button variant="outline" size="sm" onClick={() => wrapSelection('i')}><Italic className="w-4 h-4" /></Button>
           <Button variant="outline" size="sm" onClick={() => wrapSelection('u')}><Underline className="w-4 h-4" /></Button>
           <Button variant="outline" size="sm" onClick={openLinkDialog}><LinkIcon className="w-4 h-4" /></Button>
+          <Button variant="outline" size="sm" onClick={() => toggleList('ol')}><ListOrdered className="w-4 h-4" /></Button>
+          <Button variant="outline" size="sm" onClick={() => toggleList('ul')}><List className="w-4 h-4" /></Button>
         </div>
       )}
 
