@@ -34,10 +34,6 @@
    /* outline: 2px solid rgba(255, 0, 0, 0.5) !important;
     box-shadow: 0 0 0 2px rgba(0, 255, 0, 0.5) !important; */
     @apply border-border;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
   }
 
   body {
@@ -97,4 +93,32 @@ body {
 
 .animate-fadeInOut {
   animation: fadeInOut 3s ease-in-out forwards;
+}
+
+/* Rich Text Editor List Styles */
+[contenteditable="true"] ol,
+[contenteditable="true"] ul {
+  padding-left: 2rem;
+  margin: 0.5rem 0;
+}
+
+[contenteditable="true"] ol {
+  list-style-type: decimal;
+}
+
+[contenteditable="true"] ul {
+  list-style-type: disc;
+}
+
+[contenteditable="true"] li {
+  display: list-item;
+  margin: 0.25rem 0;
+}
+
+[contenteditable="true"] ol ol {
+  list-style-type: lower-alpha;
+}
+
+[contenteditable="true"] ul ul {
+  list-style-type: circle;
 }
