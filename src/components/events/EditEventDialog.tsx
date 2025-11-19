@@ -53,6 +53,7 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
   const [selectedStartDate, setSelectedStartDate] = useState<Date | undefined>(undefined);
   const [selectedEndDate, setSelectedEndDate] = useState<Date | undefined>(undefined);
+  const hasDateRange = selectedEndDate !== undefined;
 
   useEffect(() => {
     const loadEvents = async () => {
@@ -84,6 +85,13 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
       setValue('is_recurring', existingEvent.is_recurring === 1);
       setSelectedType(existingEvent.type || '');
       setIsRecurring(existingEvent.is_recurring === 1);
+      
+      // Check if event has date range
+      if (existingEvent.date && existingEvent.date.includes(':')) {
+        const [start, end] = existingEvent.date.split(':');
+        setSelectedStartDate(new Date(start));
+        setSelectedEndDate(new Date(end));
+      }
     }
   };
 
@@ -200,22 +208,33 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
               />
               <DatePicker
                 id="editEndDate"
-                label="Enddatum (optional)"
+                label={selectedEndDate ? "Enddatum" : "Enddatum (optional)"}
                 value={selectedEndDate}
-                onChange={(d) => setSelectedEndDate(d)}
+                onChange={(d) => {
+                  setSelectedEndDate(d);
+                  if (d) {
+                    // Clear time and recurring when end date is set
+                    setValue('time', '');
+                    setValue('is_recurring', false);
+                    setIsRecurring(false);
+                  }
+                  setHasChanges(true);
+                }}
               />
             </div>
             
             <div className="space-y-2">
               <Label htmlFor="time">Uhrzeit</Label>
-              <TimeInput
-                value={watch('time') || ''}
-                onChange={(time) => {
-                  setValue('time', time);
-                  setHasChanges(true);
-                }}
-                placeholder="Uhrzeit auswählen"
-              />
+              <div className={hasDateRange ? 'opacity-50 pointer-events-none' : ''}>
+                <TimeInput
+                  value={watch('time') || ''}
+                  onChange={(time) => {
+                    setValue('time', time);
+                    setHasChanges(true);
+                  }}
+                  placeholder="Uhrzeit auswählen"
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="location">Ort</Label>
@@ -259,8 +278,9 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
                   setHasChanges(true);
                 }}
                 className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                disabled={hasDateRange}
               />
-              <Label htmlFor="is_recurring" className="cursor-pointer">
+              <Label htmlFor="is_recurring" className={`cursor-pointer ${hasDateRange ? 'opacity-50' : ''}`}>
                 Wiederkehrendes Ereignis (z.B. wöchentlich, monatlich)
               </Label>
             </div>

@@ -98,6 +98,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
   const watchRepeatType = watch("repeatType");
   const watchRepeatCount = watch("repeatCount");
   const showRepeatCount = watchRepeatType && watchRepeatType !== "none";
+  const hasDateRange = selectedEndDate !== undefined;
   const [alertDialog, setAlertDialog] = useState<{
     open: boolean;
     title: string;
@@ -186,6 +187,12 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
     if (date) {
       // not writing into form 'date' field; we send range when submitting
       setValue('date', `${formatDateForAPI(selectedDate || new Date())}:${formatDateForAPI(date)}`);
+      // Clear time and recurring when end date is set
+      setValue('time', '');
+      setValue('is_recurring', false);
+      setIsRecurring(false);
+      setValue('repeatType', 'none');
+      setSelectedRepeat('none');
     }
   };
 
@@ -365,7 +372,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
 
         <DatePicker
           id="endDate"
-          label="Enddatum (optional)"
+          label={selectedEndDate ? "Enddatum" : "Enddatum (optional)"}
           value={selectedEndDate}
           onChange={handleEndDateChange}
         />
@@ -379,6 +386,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
             value={watch('time') || ''}
             onChange={(e) => setValue('time', e.target.value)}
             className="bg-background appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+            disabled={hasDateRange}
           />
         </div>
         <div className="space-y-2">
@@ -407,8 +415,9 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
               setValue('is_recurring', e.target.checked);
             }}
             className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            disabled={hasDateRange}
           />
-          <Label htmlFor="is_recurring" className="cursor-pointer">
+          <Label htmlFor="is_recurring" className={`cursor-pointer ${hasDateRange ? 'opacity-50' : ''}`}>
             Wiederkehrendes Ereignis (z.B. wöchentlich, monatlich)
           </Label>
         </div>
@@ -422,6 +431,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
                 role="combobox"
                 aria-expanded={repeatOpen}
                 className="w-full flex items-center justify-between px-3 py-2 border rounded bg-white text-left"
+                disabled={hasDateRange}
               >
                 {selectedRepeat !== "none"
                   ? repeatOptions.find((r) => r.value === selectedRepeat)?.label
