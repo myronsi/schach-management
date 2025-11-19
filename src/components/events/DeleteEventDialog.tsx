@@ -35,6 +35,8 @@ const deleteModeOptions = [
   { value: "upcomingTitle", label: "Alle zukünftigen Ereignisse mit Titel" },
   { value: "allOnDay", label: "Alle Ereignisse an einem Tag" }
 ];
+ 
+deleteModeOptions.push({ value: 'range', label: 'Ereignisse in einem Zeitraum' });
 
 interface DeleteEventDialogProps {
   onSuccess?: () => void;
@@ -55,6 +57,8 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
   const [modeOpen, setModeOpen] = useState(false);
   const [selectedMode, setSelectedMode] = useState<string>("upcomingTitle");
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [selectedStartDate, setSelectedStartDate] = useState<Date | undefined>(undefined);
+  const [selectedEndDate, setSelectedEndDate] = useState<Date | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const formatDateForAPI = (date: Date): string => {
@@ -91,6 +95,7 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
   const watchDeleteMode = watch("deleteMode");
   const needsTitle = watchDeleteMode === "upcomingTitle";
   const needsDate = watchDeleteMode === "allOnDay";
+  const needsRange = watchDeleteMode === 'range';
 
   const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
     setAlertDialog({
@@ -138,12 +143,28 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
     }
   };
 
+  const handleStartDateChange = (date: Date | undefined) => {
+    setSelectedStartDate(date);
+    if (date && selectedEndDate) {
+      setValue('date', `${formatDateForAPI(date)}:${formatDateForAPI(selectedEndDate)}`);
+    }
+  };
+
+  const handleEndDateChange = (date: Date | undefined) => {
+    setSelectedEndDate(date);
+    if (date && selectedStartDate) {
+      setValue('date', `${formatDateForAPI(selectedStartDate)}:${formatDateForAPI(date)}`);
+    }
+  };
+
   const handleModeSelect = (mode: string) => {
     setValue('deleteMode', mode);
     setSelectedMode(mode);
     setModeOpen(false);
     setSelectedTitle("");
     setSelectedDate(undefined);
+    setSelectedStartDate(undefined);
+    setSelectedEndDate(undefined);
     setValue('title', "");
     setValue('date', "");
   };
@@ -164,6 +185,11 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
       case "allOnDay":
         confirmMessage = `Möchten Sie alle Ereignisse am ${formData.date} löschen?`;
         break;
+      case 'range':
+        confirmMessage = selectedStartDate && selectedEndDate
+          ? `Möchten Sie alle Ereignisse von ${formatDateForAPI(selectedStartDate)} bis ${formatDateForAPI(selectedEndDate)} löschen?`
+          : 'Möchten Sie alle Ereignisse in dem angegebenen Zeitraum löschen?';
+        break;
     }
     
     showConfirm(
@@ -179,6 +205,9 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
           
           if (formData.title) requestBody.title = formData.title;
           if (formData.date) requestBody.date = formData.date;
+          if (needsRange && selectedStartDate && selectedEndDate) {
+            requestBody.date = `${formatDateForAPI(selectedStartDate)}:${formatDateForAPI(selectedEndDate)}`;
+          }
           
           const res = await httpUtils.post(`${API}?action=delete`, requestBody);
           const result = await res.json();
@@ -299,10 +328,30 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
         />
       )}
 
+      {needsRange && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <DatePicker
+            id="startDate"
+            label="Startdatum"
+            value={selectedStartDate}
+            onChange={handleStartDateChange}
+            required
+          />
+          <DatePicker
+            id="endDate"
+            label="Enddatum"
+            value={selectedEndDate}
+            onChange={handleEndDateChange}
+            required
+          />
+        </div>
+      )}
+
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <Input type="hidden" {...register('deleteMode')} />
         {needsTitle && <Input type="hidden" {...register('title')} />}
         {needsDate && <Input type="hidden" value={selectedDate ? formatDateForAPI(selectedDate) : ''} name="date" />}
+        {needsRange && <Input type="hidden" value={(selectedStartDate && selectedEndDate) ? `${formatDateForAPI(selectedStartDate)}:${formatDateForAPI(selectedEndDate)}` : ''} name="date" />}
         
         <Button 
           type="submit" 
@@ -311,6 +360,7 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
           disabled={
             (needsTitle && !selectedTitle) ||
             (needsDate && !selectedDate) ||
+            (needsRange && (!selectedStartDate || !selectedEndDate)) ||
             isSubmitting
           }
         >

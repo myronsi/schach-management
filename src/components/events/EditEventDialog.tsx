@@ -8,6 +8,7 @@ import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TypeSelector } from '@/components/ui/type-selector';
+import { DatePicker } from '@/components/ui/date-picker';
 import { TimeInput } from '@/components/ui/time-input';
 import { httpUtils } from '@/lib/auth-utils';
 
@@ -50,6 +51,9 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
+  const [selectedStartDate, setSelectedStartDate] = useState<Date | undefined>(undefined);
+  const [selectedEndDate, setSelectedEndDate] = useState<Date | undefined>(undefined);
+  const hasDateRange = selectedEndDate !== undefined;
 
   useEffect(() => {
     const loadEvents = async () => {
@@ -81,6 +85,13 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
       setValue('is_recurring', existingEvent.is_recurring === 1);
       setSelectedType(existingEvent.type || '');
       setIsRecurring(existingEvent.is_recurring === 1);
+      
+      // Check if event has date range
+      if (existingEvent.date && existingEvent.date.includes(':')) {
+        const [start, end] = existingEvent.date.split(':');
+        setSelectedStartDate(new Date(start));
+        setSelectedEndDate(new Date(end));
+      }
     }
   };
 
@@ -105,10 +116,14 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
       if (selectedType) updates.type = selectedType;
       updates.is_recurring = isRecurring ? 1 : 0;
 
-      const res = await httpUtils.post(`${API}?action=editByTitle`, { 
-        title: data.title,
-        updates: updates
-      });
+      const payload: any = { title: data.title, updates: updates };
+      if (selectedStartDate && selectedEndDate) {
+        const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        payload.start_date = fmt(selectedStartDate);
+        payload.end_date = fmt(selectedEndDate);
+      }
+
+      const res = await httpUtils.post(`${API}?action=editByTitle`, payload);
       const result = await res.json();
       if (res.ok) {
         setResponse(result);
@@ -184,17 +199,42 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
                 Leere Felder werden nicht geändert.
               </p>
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <DatePicker
+                id="editStartDate"
+                label="Startdatum (optional)"
+                value={selectedStartDate}
+                onChange={(d) => setSelectedStartDate(d)}
+              />
+              <DatePicker
+                id="editEndDate"
+                label={selectedEndDate ? "Enddatum" : "Enddatum (optional)"}
+                value={selectedEndDate}
+                onChange={(d) => {
+                  setSelectedEndDate(d);
+                  if (d) {
+                    // Clear time and recurring when end date is set
+                    setValue('time', '');
+                    setValue('is_recurring', false);
+                    setIsRecurring(false);
+                  }
+                  setHasChanges(true);
+                }}
+              />
+            </div>
             
             <div className="space-y-2">
               <Label htmlFor="time">Uhrzeit</Label>
-              <TimeInput
-                value={watch('time') || ''}
-                onChange={(time) => {
-                  setValue('time', time);
-                  setHasChanges(true);
-                }}
-                placeholder="Uhrzeit auswählen"
-              />
+              <div className={hasDateRange ? 'opacity-50 pointer-events-none' : ''}>
+                <TimeInput
+                  value={watch('time') || ''}
+                  onChange={(time) => {
+                    setValue('time', time);
+                    setHasChanges(true);
+                  }}
+                  placeholder="Uhrzeit auswählen"
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="location">Ort</Label>
@@ -238,8 +278,9 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
                   setHasChanges(true);
                 }}
                 className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                disabled={hasDateRange}
               />
-              <Label htmlFor="is_recurring" className="cursor-pointer">
+              <Label htmlFor="is_recurring" className={`cursor-pointer ${hasDateRange ? 'opacity-50' : ''}`}>
                 Wiederkehrendes Ereignis (z.B. wöchentlich, monatlich)
               </Label>
             </div>
