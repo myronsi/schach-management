@@ -8,6 +8,7 @@ import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TypeSelector } from '@/components/ui/type-selector';
+import { DatePicker } from '@/components/ui/date-picker';
 import { TimeInput } from '@/components/ui/time-input';
 import { httpUtils } from '@/lib/auth-utils';
 
@@ -50,6 +51,8 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
+  const [selectedStartDate, setSelectedStartDate] = useState<Date | undefined>(undefined);
+  const [selectedEndDate, setSelectedEndDate] = useState<Date | undefined>(undefined);
 
   useEffect(() => {
     const loadEvents = async () => {
@@ -105,10 +108,14 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
       if (selectedType) updates.type = selectedType;
       updates.is_recurring = isRecurring ? 1 : 0;
 
-      const res = await httpUtils.post(`${API}?action=editByTitle`, { 
-        title: data.title,
-        updates: updates
-      });
+      const payload: any = { title: data.title, updates: updates };
+      if (selectedStartDate && selectedEndDate) {
+        const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        payload.start_date = fmt(selectedStartDate);
+        payload.end_date = fmt(selectedEndDate);
+      }
+
+      const res = await httpUtils.post(`${API}?action=editByTitle`, payload);
       const result = await res.json();
       if (res.ok) {
         setResponse(result);
@@ -183,6 +190,20 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
                 <strong>Hinweis:</strong> Änderungen werden auf alle zukünftigen Ereignisse mit dem Titel "{selectedTitle}" angewendet.
                 Leere Felder werden nicht geändert.
               </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <DatePicker
+                id="editStartDate"
+                label="Startdatum (optional)"
+                value={selectedStartDate}
+                onChange={(d) => setSelectedStartDate(d)}
+              />
+              <DatePicker
+                id="editEndDate"
+                label="Enddatum (optional)"
+                value={selectedEndDate}
+                onChange={(d) => setSelectedEndDate(d)}
+              />
             </div>
             
             <div className="space-y-2">

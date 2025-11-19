@@ -90,6 +90,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
   const [repeatOpen, setRepeatOpen] = useState(false);
   const [selectedRepeat, setSelectedRepeat] = useState<string>("none");
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [selectedEndDate, setSelectedEndDate] = useState<Date | undefined>(undefined);
   const [selectedType, setSelectedType] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
@@ -130,6 +131,10 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
     const hasDate = selectedDate !== undefined;
     const hasType = selectedType && selectedType.trim().length > 0;
     const hasValidRepeatCount = !showRepeatCount || (watchRepeatCount && watchRepeatCount > 0);
+
+    if (selectedEndDate && selectedDate) {
+      if (selectedEndDate < selectedDate) return false;
+    }
 
     return hasTitle && hasDate && hasType && hasValidRepeatCount;
   };
@@ -176,6 +181,14 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
     }
   };
 
+  const handleEndDateChange = (date: Date | undefined) => {
+    setSelectedEndDate(date);
+    if (date) {
+      // not writing into form 'date' field; we send range when submitting
+      setValue('date', `${formatDateForAPI(selectedDate || new Date())}:${formatDateForAPI(date)}`);
+    }
+  };
+
   const handleTypeChange = (type: string) => {
     setSelectedType(type);
     setValue('type', type);
@@ -190,68 +203,89 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
     setIsSubmitting(true);
     
     try {
-      const eventDate = selectedDate ? formatDateForAPI(selectedDate) : data.date;
-      
-      if (!eventDate) {
-        showAlert('Fehler', 'Bitte wählen Sie ein Datum aus', 'error');
-        return;
-      }
+      if (selectedEndDate) {
+        const start = formatDateForAPI(selectedDate as Date);
+        const end = formatDateForAPI(selectedEndDate as Date);
+        const payload = {
+          title: data.title,
+          date: `${start}:${end}`,
+          time: data.time,
+          location: data.location,
+          description: data.description,
+          type: selectedType || data.type,
+          is_recurring: isRecurring ? 1 : 0
+        };
 
-      const eventsToCreate = [];
-      const baseEvent = {
-        title: data.title,
-        date: eventDate,
-        time: data.time,
-        location: data.location,
-        description: data.description,
-        type: selectedType || data.type,
-        is_recurring: isRecurring ? 1 : 0
-      };
-
-      if (!data.repeatType || data.repeatType === "none") {
-        eventsToCreate.push(baseEvent);
-      } else {
-        const repeatCount = data.repeatCount || 1;
-        const startDate = new Date(eventDate);
-        
-        for (let i = 0; i < repeatCount; i++) {
-          const eventDate = new Date(startDate);
-          
-          switch (data.repeatType) {
-            case "daily":
-              eventDate.setDate(startDate.getDate() + i);
-              break;
-            case "weekly":
-              eventDate.setDate(startDate.getDate() + (i * 7));
-              break;
-            case "monthly":
-              eventDate.setMonth(startDate.getMonth() + i);
-              break;
-            case "monthly_date":
-              eventDate.setMonth(startDate.getMonth() + i);
-              break;
-            case "yearly":
-              eventDate.setFullYear(startDate.getFullYear() + i);
-              break;
-          }
-          
-          eventsToCreate.push({
-            ...baseEvent,
-            date: formatDateForAPI(eventDate)
-          });
-        }
-      }
-
-      for (const event of eventsToCreate) {
-        const res = await httpUtils.post(`${API}?action=create`, event);
-        
+        const res = await httpUtils.post(`${API}?action=create`, payload);
         if (!res.ok) {
           const body = await res.json();
           throw new Error(body.error || res.statusText);
         }
+        showAlert('Erfolg', `Ereignisse von ${start} bis ${end} erfolgreich erstellt`, 'success');
+      } else {
+        const eventDate = selectedDate ? formatDateForAPI(selectedDate) : data.date;
+        
+        if (!eventDate) {
+          showAlert('Fehler', 'Bitte wählen Sie ein Datum aus', 'error');
+          return;
+        }
+
+        const eventsToCreate = [];
+        const baseEvent = {
+          title: data.title,
+          date: eventDate,
+          time: data.time,
+          location: data.location,
+          description: data.description,
+          type: selectedType || data.type,
+          is_recurring: isRecurring ? 1 : 0
+        };
+
+        if (!data.repeatType || data.repeatType === "none") {
+          eventsToCreate.push(baseEvent);
+        } else {
+          const repeatCount = data.repeatCount || 1;
+          const startDate = new Date(eventDate);
+          
+          for (let i = 0; i < repeatCount; i++) {
+            const eventDate = new Date(startDate);
+            
+            switch (data.repeatType) {
+              case "daily":
+                eventDate.setDate(startDate.getDate() + i);
+                break;
+              case "weekly":
+                eventDate.setDate(startDate.getDate() + (i * 7));
+                break;
+              case "monthly":
+                eventDate.setMonth(startDate.getMonth() + i);
+                break;
+              case "monthly_date":
+                eventDate.setMonth(startDate.getMonth() + i);
+                break;
+              case "yearly":
+                eventDate.setFullYear(startDate.getFullYear() + i);
+                break;
+            }
+            
+            eventsToCreate.push({
+              ...baseEvent,
+              date: formatDateForAPI(eventDate)
+            });
+          }
+        }
+
+        for (const event of eventsToCreate) {
+          const res = await httpUtils.post(`${API}?action=create`, event);
+          
+          if (!res.ok) {
+            const body = await res.json();
+            throw new Error(body.error || res.statusText);
+          }
+        }
+
+        showAlert('Erfolg', `${eventsToCreate.length} Ereignis(se) erfolgreich erstellt`, 'success');
       }
-      
-      showAlert('Erfolg', `${eventsToCreate.length} Ereignis(se) erfolgreich erstellt`, 'success');
       
       resetForm();
       
@@ -327,6 +361,13 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
           value={selectedDate}
           onChange={handleDateChange}
           required
+        />
+
+        <DatePicker
+          id="endDate"
+          label="Enddatum (optional)"
+          value={selectedEndDate}
+          onChange={handleEndDateChange}
         />
         
         <div className="space-y-2">

@@ -35,6 +35,17 @@ try {
     $action = $_GET['action'] ?? $_POST['action'] ?? 'list';
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
 
+    $parseDateRange = function($dateStr) {
+        if (!$dateStr) return [null, null];
+        if (strpos($dateStr, ':') !== false) {
+            $parts = explode(':', $dateStr, 2);
+            $start = trim($parts[0]);
+            $end = trim($parts[1]);
+            return [$start, $end];
+        }
+        return [trim($dateStr), null];
+    };
+
     if (isWriteOperation($action)) {
         $user = requireAuthentication(['admin']);
         error_log("Authenticated user '{$user['username']}' performing action: $action");
@@ -50,16 +61,24 @@ try {
             
         case 'upcoming':
             $currentDate = date('Y-m-d');
-            $stmt = $pdo->prepare('SELECT id, title, date, time, location, description, type, is_recurring FROM events WHERE date >= ? ORDER BY date ASC');
-            $stmt->execute([$currentDate]);
+            $stmt = $pdo->prepare(
+                "SELECT id, title, date, time, location, description, type, is_recurring FROM events
+                 WHERE (date NOT LIKE '%:%' AND date >= ?) OR (date LIKE '%:%' AND SUBSTRING_INDEX(date, ':', -1) >= ?)
+                 ORDER BY date ASC"
+            );
+            $stmt->execute([$currentDate, $currentDate]);
             $events = $stmt->fetchAll();
             echo json_encode(['events' => $events]);
             break;
 
         case 'past':
             $currentDate = date('Y-m-d');
-            $stmt = $pdo->prepare('SELECT id, title, date, time, location, description, type, is_recurring FROM events WHERE date < ? ORDER BY date DESC');
-            $stmt->execute([$currentDate]);
+            $stmt = $pdo->prepare(
+                "SELECT id, title, date, time, location, description, type, is_recurring FROM events
+                 WHERE (date NOT LIKE '%:%' AND date < ?) OR (date LIKE '%:%' AND SUBSTRING_INDEX(date, ':', -1) < ?)
+                 ORDER BY date DESC"
+            );
+            $stmt->execute([$currentDate, $currentDate]);
             $events = $stmt->fetchAll();
             echo json_encode(['events' => $events]);
             break;
@@ -77,22 +96,36 @@ try {
                 exit;
             }
             
-            $firstDay = sprintf('%04d-%02d-01', $year, $month);
-            $lastDay = date('Y-m-t', strtotime($firstDay));
-            
-            $stmt = $pdo->prepare('SELECT id, title, date, time, location, description, type, is_recurring FROM events WHERE date >= ? AND date <= ? ORDER BY date ASC');
-            $stmt->execute([$firstDay, $lastDay]);
+                        $firstDay = sprintf('%04d-%02d-01', $year, $month);
+                        $lastDay = date('Y-m-t', strtotime($firstDay));
+
+                        $expandedStart = date('Y-m-d', strtotime($firstDay . ' -8 days'));
+                        $expandedEnd = date('Y-m-d', strtotime($lastDay . ' +8 days'));
+
+                        $stmt = $pdo->prepare(
+                                "SELECT id, title, date, time, location, description, type, is_recurring FROM events
+                                 WHERE (date NOT LIKE '%:%' AND date >= ? AND date <= ?) 
+                                     OR (date LIKE '%:%' AND SUBSTRING_INDEX(date, ':', 1) <= ? AND SUBSTRING_INDEX(date, ':', -1) >= ?) 
+                                 ORDER BY date ASC"
+                        );
+                        $stmt->execute([$expandedStart, $expandedEnd, $expandedEnd, $expandedStart]);
             $events = $stmt->fetchAll();
             echo json_encode(['events' => $events]);
             break;
             
         case 'create':
-            if (isset($input[0])) {
-                $stmt = $pdo->prepare('INSERT INTO events (title, date, time, location, description, type, is_recurring) VALUES (?, ?, ?, ?, ?, ?, ?)');
+            $maxIdStmt = $pdo->query("SELECT MAX(id) FROM events");
+            $nextId = (int)$maxIdStmt->fetchColumn() + 1;
+
+            $stmt = $pdo->prepare('INSERT INTO events (id, title, date, time, location, description, type, is_recurring) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+
+            if (isset($input[0]) && is_array($input)) {
                 foreach ($input as $event) {
+                    $dateVal = $event['date'] ?? '';
                     $stmt->execute([
+                        $nextId++,
                         $event['title'] ?? '',
-                        $event['date'] ?? '',
+                        $dateVal ?? '',
                         $event['time'] ?? null,
                         $event['location'] ?? null,
                         $event['description'] ?? null,
@@ -101,10 +134,11 @@ try {
                     ]);
                 }
             } else {
-                $stmt = $pdo->prepare('INSERT INTO events (title, date, time, location, description, type, is_recurring) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                $dateVal = $input['date'] ?? '';
                 $stmt->execute([
+                    $nextId++,
                     $input['title'] ?? '',
-                    $input['date'] ?? '',
+                    $dateVal ?? '',
                     $input['time'] ?? null,
                     $input['location'] ?? null,
                     $input['description'] ?? null,
@@ -112,19 +146,21 @@ try {
                     $input['is_recurring'] ?? 0
                 ]);
             }
-            
+
             echo json_encode(['success' => true, 'message' => 'Event(s) created']);
             break;
             
         case 'edit':
-            $eventId = $input['id'] ?? '';
+            $eventId = $input['id'] ?? null;
             $updates = $input['updates'] ?? $input;
             
             unset($updates['id'], $updates['action']);
             
-            if (!$eventId) {
+            error_log("Edit request - eventId: '$eventId', input: " . json_encode($input));
+            
+            if ($eventId === null || $eventId === '') {
                 http_response_code(400);
-                echo json_encode(['error' => 'Missing event ID']);
+                echo json_encode(['error' => 'Missing event ID', 'received_id' => $eventId, 'input' => $input]);
                 exit;
             }
             
@@ -150,29 +186,42 @@ try {
         case 'editByTitle':
             $title = $input['title'] ?? '';
             $updates = $input['updates'] ?? [];
-            $currentDate = date('Y-m-d');
-            
             if (!$title) {
                 http_response_code(400);
                 echo json_encode(['error' => 'Missing title']);
                 exit;
             }
-            
             $fields = [];
             $values = [];
             foreach ($updates as $key => $value) {
-                if ($value !== null && $value !== '' && in_array($key, ['time', 'location', 'description', 'type'])) {
+                if ($value !== null && $value !== '' && in_array($key, ['time', 'location', 'description', 'type', 'is_recurring', 'title'])) {
                     $fields[] = "$key = ?";
                     $values[] = $value;
                 }
             }
-            
+
+            $startDate = $input['start_date'] ?? null;
+            $endDate = $input['end_date'] ?? null;
+            if (!$startDate && isset($input['date']) && strpos($input['date'], ':') !== false) {
+                list($startDate, $endDate) = $parseDateRange($input['date']);
+            }
+
             if (!empty($fields)) {
-                $values[] = $title;
-                $values[] = $currentDate;
-                $sql = 'UPDATE events SET ' . implode(', ', $fields) . ' WHERE title = ? AND date >= ?';
-                $stmt = $pdo->prepare($sql);
-                $stmt->execute($values);
+                if (!$startDate) {
+                    $startDate = date('Y-m-d');
+                }
+
+                if ($endDate) {
+                    $sql = 'UPDATE events SET ' . implode(', ', $fields) . ' WHERE title = ? AND date >= ? AND date <= ?';
+                    $stmt = $pdo->prepare($sql);
+                    $execParams = array_merge($values, [$title, $startDate, $endDate]);
+                    $stmt->execute($execParams);
+                } else {
+                    $sql = 'UPDATE events SET ' . implode(', ', $fields) . ' WHERE title = ? AND date >= ?';
+                    $stmt = $pdo->prepare($sql);
+                    $execParams = array_merge($values, [$title, $startDate]);
+                    $stmt->execute($execParams);
+                }
                 $affected = $stmt->rowCount();
                 echo json_encode(['success' => true, 'message' => "Updated $affected event(s)"]);
             } else {
@@ -235,6 +284,24 @@ try {
                     
                     $stmt = $pdo->prepare('DELETE FROM events WHERE date = ?');
                     $stmt->execute([$date]);
+                    $deleted = $stmt->rowCount();
+                    break;
+
+                case 'range':
+                    $startDate = $input['start_date'] ?? null;
+                    $endDate = $input['end_date'] ?? null;
+                    if (!$startDate && isset($input['date']) && strpos($input['date'], ':') !== false) {
+                        list($startDate, $endDate) = $parseDateRange($input['date']);
+                    }
+
+                    if (!$startDate || !$endDate) {
+                        http_response_code(400);
+                        echo json_encode(['error' => 'Missing start_date or end_date for range delete']);
+                        exit;
+                    }
+
+                    $stmt = $pdo->prepare('DELETE FROM events WHERE date >= ? AND date <= ?');
+                    $stmt->execute([$startDate, $endDate]);
                     $deleted = $stmt->rowCount();
                     break;
                     

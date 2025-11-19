@@ -46,6 +46,8 @@ const EventsList: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Event>>({});
   const [originalEvent, setOriginalEvent] = useState<Event | null>(null);
+  const [editStartDate, setEditStartDate] = useState<Date | undefined>(undefined);
+  const [editEndDate, setEditEndDate] = useState<Date | undefined>(undefined);
   const [currentFilter, setCurrentFilter] = useState<FilterType>('future');
   const [filterOpen, setFilterOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -101,12 +103,33 @@ const EventsList: React.FC = () => {
 
     switch (filter) {
       case 'today':
-        return eventsToFilter.filter(event => event.date === todayStr);
+        return eventsToFilter.filter(event => {
+          if (!event.date) return false;
+          if (event.date.includes(':')) {
+            const [start, end] = event.date.split(':');
+            return start <= todayStr && todayStr <= end;
+          }
+          return event.date === todayStr;
+        });
       case 'past':
-        return eventsToFilter.filter(event => event.date < todayStr);
+        return eventsToFilter.filter(event => {
+          if (!event.date) return false;
+          if (event.date.includes(':')) {
+            const [_start, end] = event.date.split(':');
+            return end < todayStr;
+          }
+          return event.date < todayStr;
+        });
       case 'future':
       default:
-        return eventsToFilter.filter(event => event.date >= todayStr);
+        return eventsToFilter.filter(event => {
+          if (!event.date) return false;
+          if (event.date.includes(':')) {
+            const [_start, end] = event.date.split(':');
+            return end >= todayStr;
+          }
+          return event.date >= todayStr;
+        });
     }
   };
 
@@ -123,15 +146,20 @@ const EventsList: React.FC = () => {
   const hasChanges = () => {
     if (!originalEvent) return false;
     
-    return (
-      editForm.title !== originalEvent.title ||
-      editForm.date !== originalEvent.date ||
-      editForm.time !== originalEvent.time ||
-      editForm.location !== originalEvent.location ||
-      editForm.description !== originalEvent.description ||
-      editForm.type !== originalEvent.type ||
-      editForm.is_recurring !== originalEvent.is_recurring
-    );
+    const changes = {
+      title: editForm.title !== originalEvent.title,
+      date: editForm.date !== originalEvent.date,
+      time: editForm.time !== originalEvent.time,
+      location: editForm.location !== originalEvent.location,
+      description: editForm.description !== originalEvent.description,
+      type: editForm.type !== originalEvent.type,
+      is_recurring: Number(editForm.is_recurring ?? 0) !== Number(originalEvent.is_recurring ?? 0)
+    };
+    
+    const hasAnyChanges = Object.values(changes).some(changed => changed);
+    console.log('hasChanges check', { originalEvent, editForm, changes, hasAnyChanges });
+    
+    return hasAnyChanges;
   };
 
   const formatDateForAPI = (date: Date): string => {
@@ -182,24 +210,68 @@ const EventsList: React.FC = () => {
     setEditingId(event.id);
     setOriginalEvent(event);
     setEditForm(event);
+    if (event.date && event.date.includes(':')) {
+      const parts = event.date.split(':', 2);
+      try {
+        setEditStartDate(parseDateString(parts[0]));
+        setEditEndDate(parseDateString(parts[1]));
+      } catch (err) {
+        setEditStartDate(undefined);
+        setEditEndDate(undefined);
+      }
+    } else if (event.date) {
+      try {
+        setEditStartDate(parseDateString(event.date));
+        setEditEndDate(undefined);
+      } catch (err) {
+        setEditStartDate(undefined);
+        setEditEndDate(undefined);
+      }
+    } else {
+      setEditStartDate(undefined);
+      setEditEndDate(undefined);
+    }
   };
 
   const handleSaveEdit = async () => {
-    if (!editingId) return;
+    console.log('handleSaveEdit called', { editingId, editForm, hasChanges: hasChanges() });
+    if (editingId === null) {
+      console.log('No editingId, returning');
+      return;
+    }
     
     try {
-      const res = await httpUtils.post(`${API}?action=edit`, { id: editingId, ...editForm });
+      const payload: any = { 
+        id: String(editingId)
+      };
+      
+      if (editForm.title !== undefined) payload.title = editForm.title;
+      if (editForm.date !== undefined) payload.date = editForm.date;
+      if (editForm.time !== undefined) payload.time = editForm.time;
+      if (editForm.location !== undefined) payload.location = editForm.location;
+      if (editForm.description !== undefined) payload.description = editForm.description;
+      if (editForm.type !== undefined) payload.type = editForm.type;
+      if (editForm.is_recurring !== undefined) payload.is_recurring = editForm.is_recurring;
+      
+      console.log('Sending edit request', payload);
+      const res = await httpUtils.post(`${API}?action=edit`, payload);
+      console.log('Edit response', { ok: res.ok, status: res.status });
       
       if (res.ok) {
         await loadEvents();
         setEditingId(null);
         setOriginalEvent(null);
         setEditForm({});
+        setEditStartDate(undefined);
+        setEditEndDate(undefined);
         showAlert('Erfolg', 'Ereignis wurde erfolgreich gespeichert', 'success');
       } else {
+        const errorBody = await res.text();
+        console.error('Edit failed', errorBody);
         showAlert('Fehler', 'Fehler beim Speichern', 'error');
       }
     } catch (err) {
+      console.error('Network error', err);
       showAlert('Fehler', 'Netzwerkfehler', 'error');
     }
   };
@@ -229,9 +301,20 @@ const EventsList: React.FC = () => {
     setEditingId(null);
     setOriginalEvent(null);
     setEditForm({});
+    setEditStartDate(undefined);
+    setEditEndDate(undefined);
   };
 
   const formatDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    if (dateStr.includes(':')) {
+      const [start, end] = dateStr.split(':');
+      const s = new Date(start);
+      const e = new Date(end);
+      const sStr = s.toLocaleDateString('de-DE');
+      const eStr = e.toLocaleDateString('de-DE');
+      return `${sStr} — ${eStr}`;
+    }
     const date = new Date(dateStr);
     return date.toLocaleDateString('de-DE', {
       weekday: 'short',
@@ -395,17 +478,58 @@ const EventsList: React.FC = () => {
                             />
                           </div>
                           
-                          <div>
-                            <Label htmlFor="edit-date">Datum</Label>
-                            <div className="mt-1">
-                              <DatePicker
-                                value={editForm.date ? parseDateString(editForm.date) : undefined}
-                                onChange={(date) => setEditForm({
-                                  ...editForm, 
-                                  date: date ? formatDateForAPI(date) : ''
-                                })}
-                                placeholder="Datum auswählen"
-                              />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <Label htmlFor="edit-start-date">Startdatum</Label>
+                              <div className="mt-1">
+                                <DatePicker
+                                  id="edit-start-date"
+                                  value={editStartDate ?? (editForm.date && !editForm.date.includes(':') ? parseDateString(editForm.date) : undefined)}
+                                  onChange={(date) => {
+                                    setEditStartDate(date);
+                                    if (date) {
+                                      const start = formatDateForAPI(date);
+                                      if (editEndDate) {
+                                        setEditForm({ ...editForm, date: `${start}:${formatDateForAPI(editEndDate)}` });
+                                      } else {
+                                        setEditForm({ ...editForm, date: start });
+                                      }
+                                    } else {
+                                      setEditForm({ ...editForm, date: '' });
+                                    }
+                                  }}
+                                  placeholder="Startdatum auswählen"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <Label htmlFor="edit-end-date">Enddatum (optional)</Label>
+                              <div className="mt-1">
+                                <DatePicker
+                                  id="edit-end-date"
+                                  value={editEndDate ?? (editForm.date && editForm.date.includes(':') ? parseDateString(editForm.date.split(':')[1]) : undefined)}
+                                  onChange={(date) => {
+                                    setEditEndDate(date);
+                                    if (date) {
+                                      const start = editStartDate ? formatDateForAPI(editStartDate) : (editForm.date && editForm.date.includes(':') ? editForm.date.split(':')[0] : editForm.date || '');
+                                      const end = formatDateForAPI(date);
+                                      if (start) {
+                                        setEditForm({ ...editForm, date: `${start}:${end}` });
+                                      } else {
+                                        setEditForm({ ...editForm, date: `${end}` });
+                                      }
+                                    } else {
+                                      if (editStartDate) {
+                                        setEditForm({ ...editForm, date: formatDateForAPI(editStartDate) });
+                                      } else {
+                                        setEditForm({ ...editForm, date: '' });
+                                      }
+                                    }
+                                  }}
+                                  placeholder="Enddatum auswählen"
+                                />
+                              </div>
                             </div>
                           </div>
                           
