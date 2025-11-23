@@ -137,8 +137,13 @@ const TeamsAdmin: React.FC = () => {
     // Check if squadPlayers has changed
     try {
       const originalSquad = JSON.parse(editing.squad || '[]');
-      if (JSON.stringify(originalSquad) !== JSON.stringify(squadPlayers)) {
+      if (!Array.isArray(originalSquad) || originalSquad.length !== squadPlayers.length) {
         return true;
+      }
+      for (let i = 0; i < originalSquad.length; i++) {
+        if (originalSquad[i] !== squadPlayers[i]) {
+          return true;
+        }
       }
     } catch {
       // If parsing fails, consider it changed if squadPlayers is not empty
@@ -148,8 +153,9 @@ const TeamsAdmin: React.FC = () => {
     // Check if record has changed
     try {
       const originalRecord = JSON.parse(editing.record || '{}');
-      const currentRecord = { w: recordW || 0, d: recordD || 0, l: recordL || 0 };
-      if (JSON.stringify(originalRecord) !== JSON.stringify(currentRecord)) {
+      if ((originalRecord.w || 0) !== (recordW || 0) ||
+          (originalRecord.d || 0) !== (recordD || 0) ||
+          (originalRecord.l || 0) !== (recordL || 0)) {
         return true;
       }
     } catch {
