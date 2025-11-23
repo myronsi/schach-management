@@ -365,7 +365,7 @@ const TeamsAdmin: React.FC = () => {
                         <div className="text-sm text-gray-600 mb-2">
                           {t.league} {t.founded ? `• Gegründet ${t.founded}` : ''}
                         </div>
-                        {t.captain && <p className="mt-1 text-sm text-gray-700">Kapitän: {t.captain}</p>}
+                        {t.captain && <p className="mt-1 text-sm text-gray-700">Mannschaftsführer: {t.captain}</p>}
                         {t.venue && <p className="mt-1 text-sm text-gray-700">Spielort: {t.venue}</p>}
                       </div>
                       
@@ -475,10 +475,10 @@ const TeamsAdmin: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="team-captain">Kapitän</Label>
+                  <Label htmlFor="team-captain">Mannschaftsführer</Label>
                   <Input 
                     id="team-captain" 
-                    placeholder="Kapitän" 
+                    placeholder="Mannschaftsführer" 
                     value={form.captain || ''} 
                     onChange={(e) => setForm({...form, captain: e.target.value})}
                   />
