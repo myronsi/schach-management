@@ -127,12 +127,36 @@ const TeamsAdmin: React.FC = () => {
 
   const hasChanges = () => {
     if (!editing) return true;
-    const keys: (keyof TeamItem)[] = ['name', 'league', 'image', 'url', 'captain', 'contact', 'nextMatch', 'venue', 'record', 'squad', 'notes', 'founded'];
+    const keys: (keyof TeamItem)[] = ['name', 'league', 'image', 'url', 'captain', 'contact', 'nextMatch', 'venue', 'notes', 'founded'];
     for (const k of keys) {
       const fVal = (form as any)[k] ?? '';
       const eVal = (editing as any)[k] ?? '';
       if (String(fVal) !== String(eVal)) return true;
     }
+    
+    // Check if squadPlayers has changed
+    try {
+      const originalSquad = JSON.parse(editing.squad || '[]');
+      if (JSON.stringify(originalSquad) !== JSON.stringify(squadPlayers)) {
+        return true;
+      }
+    } catch {
+      // If parsing fails, consider it changed if squadPlayers is not empty
+      if (squadPlayers.length > 0) return true;
+    }
+    
+    // Check if record has changed
+    try {
+      const originalRecord = JSON.parse(editing.record || '{}');
+      const currentRecord = { w: recordW || 0, d: recordD || 0, l: recordL || 0 };
+      if (JSON.stringify(originalRecord) !== JSON.stringify(currentRecord)) {
+        return true;
+      }
+    } catch {
+      // If parsing fails, consider it changed if any record value is non-zero
+      if (recordW !== 0 || recordD !== 0 || recordL !== 0) return true;
+    }
+    
     return false;
   };
 
