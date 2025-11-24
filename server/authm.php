@@ -43,7 +43,7 @@ try {
 
     if ($method === 'GET') {
         if ($username) {
-            $stmt = $pdo->prepare('SELECT username, status, password_status FROM users WHERE username = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT username, status, password_status, first_name, last_name FROM users WHERE username = ? LIMIT 1');
             $stmt->execute([$username]);
             $row = $stmt->fetch();
             if (!$row) {
@@ -54,8 +54,8 @@ try {
             echo json_encode($row);
             exit;
         }
-
-        $stmt = $pdo->query('SELECT username, status, password_status FROM users ORDER BY username ASC');
+        
+        $stmt = $pdo->query('SELECT username, status, password_status, first_name, last_name FROM users ORDER BY username ASC');
         $rows = $stmt->fetchAll();
         echo json_encode($rows);
         exit;
@@ -72,6 +72,8 @@ try {
         $passwordValue = trim($data['password'] ?? '');
         $statusValue = trim($data['status'] ?? 'user');
         $passwordStatusValue = trim($data['password_status'] ?? 'unchanged');
+        $firstNameValue = isset($data['first_name']) ? trim($data['first_name']) : null;
+        $lastNameValue = isset($data['last_name']) ? trim($data['last_name']) : null;
         
         $isUpdate = isset($data['is_update']) && $data['is_update'] === true;
 
@@ -94,8 +96,8 @@ try {
 
             if ($passwordValue !== '') {
                 $hashedPassword = password_hash($passwordValue, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ? WHERE username = ?');
-                $stmt->execute([$hashedPassword, $statusValue, $passwordStatusValue, $usernameValue]);
+                $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
+                $stmt->execute([$hashedPassword, $statusValue, $passwordStatusValue, $firstNameValue ?? '', $lastNameValue ?? '', $usernameValue]);
             } else {
                 $existingPassword = $exists['password'];
                 
@@ -103,11 +105,11 @@ try {
                 
                 if (!$isHashed && $existingPassword !== '') {
                     $hashedPassword = password_hash($existingPassword, PASSWORD_DEFAULT);
-                    $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ? WHERE username = ?');
-                    $stmt->execute([$hashedPassword, $statusValue, $passwordStatusValue, $usernameValue]);
+                    $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
+                    $stmt->execute([$hashedPassword, $statusValue, $passwordStatusValue, $firstNameValue ?? '', $lastNameValue ?? '', $usernameValue]);
                 } else {
-                    $stmt = $pdo->prepare('UPDATE users SET status = ?, password_status = ? WHERE username = ?');
-                    $stmt->execute([$statusValue, $passwordStatusValue, $usernameValue]);
+                    $stmt = $pdo->prepare('UPDATE users SET status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
+                    $stmt->execute([$statusValue, $passwordStatusValue, $firstNameValue ?? '', $lastNameValue ?? '', $usernameValue]);
                 }
             }
             
@@ -130,8 +132,8 @@ try {
 
             $hashedPassword = password_hash($passwordValue, PASSWORD_DEFAULT);
 
-            $stmt = $pdo->prepare('INSERT INTO users (username, password, status, password_status) VALUES (?, ?, ?, ?)');
-            $stmt->execute([$usernameValue, $hashedPassword, $statusValue, $passwordStatusValue]);
+            $stmt = $pdo->prepare('INSERT INTO users (username, password, status, password_status, first_name, last_name) VALUES (?, ?, ?, ?, ?, ?)');
+            $stmt->execute([$usernameValue, $hashedPassword, $statusValue, $passwordStatusValue, $firstNameValue ?? '', $lastNameValue ?? '']);
             
             echo json_encode(['success' => true, 'message' => 'Created', 'username' => $usernameValue]);
             exit;
