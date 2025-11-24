@@ -19,6 +19,8 @@ interface User {
   username: string;
   status: string;
   password_status: string;
+  first_name?: string;
+  last_name?: string;
 }
 
 const fetchUsers = async (): Promise<User[]> => {
@@ -104,7 +106,7 @@ const UsersAdmin: React.FC = () => {
 
   const hasChanges = () => {
     if (!editing) return true;
-    const keys: (keyof User)[] = ['username', 'status', 'password_status'];
+    const keys: (keyof User)[] = ['username', 'status', 'password_status', 'first_name', 'last_name'];
     for (const k of keys) {
       const fVal = (form as any)[k] ?? '';
       const eVal = (editing as any)[k] ?? '';
@@ -151,7 +153,9 @@ const UsersAdmin: React.FC = () => {
     setForm({ 
       status: 'user',
       password_status: 'unchanged',
-      password: ''
+      password: '',
+      first_name: '',
+      last_name: ''
     });
     setShowPassword(false);
     setOpen(true);
@@ -161,7 +165,9 @@ const UsersAdmin: React.FC = () => {
     setEditing(user);
     setForm({ 
       ...user,
-      password: ''
+      password: '',
+      first_name: user.first_name || '',
+      last_name: user.last_name || ''
     });
     setShowPassword(false);
     setOpen(true);
@@ -177,6 +183,12 @@ const UsersAdmin: React.FC = () => {
     
     if (form.password && String(form.password).trim() !== '') {
       payload.password = form.password;
+    }
+    if (typeof form.first_name !== 'undefined') {
+      payload.first_name = form.first_name;
+    }
+    if (typeof form.last_name !== 'undefined') {
+      payload.last_name = form.last_name;
     }
     
     createUpdate.mutate(payload);
@@ -344,6 +356,26 @@ const UsersAdmin: React.FC = () => {
                   {editing && (
                     <p className="text-xs text-gray-500">Der Benutzername kann nicht geändert werden</p>
                   )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="user-first-name">Vorname</Label>
+                  <Input
+                    id="user-first-name"
+                    placeholder="Vorname"
+                    value={form.first_name || ''}
+                    onChange={(e) => setForm({ ...form, first_name: e.target.value })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="user-last-name">Nachname</Label>
+                  <Input
+                    id="user-last-name"
+                    placeholder="Nachname"
+                    value={form.last_name || ''}
+                    onChange={(e) => setForm({ ...form, last_name: e.target.value })}
+                  />
                 </div>
 
                 <div className="space-y-2">

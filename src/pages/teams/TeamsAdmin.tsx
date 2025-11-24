@@ -127,12 +127,42 @@ const TeamsAdmin: React.FC = () => {
 
   const hasChanges = () => {
     if (!editing) return true;
-    const keys: (keyof TeamItem)[] = ['name', 'league', 'image', 'url', 'captain', 'contact', 'nextMatch', 'venue', 'record', 'squad', 'notes', 'founded'];
+    const keys: (keyof TeamItem)[] = ['name', 'league', 'image', 'url', 'captain', 'contact', 'nextMatch', 'venue', 'notes', 'founded'];
     for (const k of keys) {
       const fVal = (form as any)[k] ?? '';
       const eVal = (editing as any)[k] ?? '';
       if (String(fVal) !== String(eVal)) return true;
     }
+    
+    // Check if squadPlayers has changed
+    try {
+      const originalSquad = JSON.parse(editing.squad || '[]');
+      if (!Array.isArray(originalSquad) || originalSquad.length !== squadPlayers.length) {
+        return true;
+      }
+      for (let i = 0; i < originalSquad.length; i++) {
+        if (originalSquad[i] !== squadPlayers[i]) {
+          return true;
+        }
+      }
+    } catch {
+      // If parsing fails, consider it changed if squadPlayers is not empty
+      if (squadPlayers.length > 0) return true;
+    }
+    
+    // Check if record has changed
+    try {
+      const originalRecord = JSON.parse(editing.record || '{}');
+      if ((originalRecord.w || 0) !== (recordW || 0) ||
+          (originalRecord.d || 0) !== (recordD || 0) ||
+          (originalRecord.l || 0) !== (recordL || 0)) {
+        return true;
+      }
+    } catch {
+      // If parsing fails, consider it changed if any record value is non-zero
+      if (recordW !== 0 || recordD !== 0 || recordL !== 0) return true;
+    }
+    
     return false;
   };
 
@@ -335,7 +365,7 @@ const TeamsAdmin: React.FC = () => {
                         <div className="text-sm text-gray-600 mb-2">
                           {t.league} {t.founded ? `• Gegründet ${t.founded}` : ''}
                         </div>
-                        {t.captain && <p className="mt-1 text-sm text-gray-700">Kapitän: {t.captain}</p>}
+                        {t.captain && <p className="mt-1 text-sm text-gray-700">Mannschaftsführer: {t.captain}</p>}
                         {t.venue && <p className="mt-1 text-sm text-gray-700">Spielort: {t.venue}</p>}
                       </div>
                       
@@ -445,10 +475,10 @@ const TeamsAdmin: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="team-captain">Kapitän</Label>
+                  <Label htmlFor="team-captain">Mannschaftsführer</Label>
                   <Input 
                     id="team-captain" 
-                    placeholder="Kapitän" 
+                    placeholder="Mannschaftsführer" 
                     value={form.captain || ''} 
                     onChange={(e) => setForm({...form, captain: e.target.value})}
                   />

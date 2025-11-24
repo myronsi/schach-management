@@ -31,7 +31,7 @@ export function TypeSelector({
   onChange, 
   placeholder = "Typ auswählen...",
   className = "",
-  required = false
+  required = true
 }: TypeSelectorProps) {
   const [open, setOpen] = React.useState(false)
   const [selectedValue, setSelectedValue] = React.useState(value || "")
