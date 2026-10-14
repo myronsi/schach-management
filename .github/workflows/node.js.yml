@@ -20,17 +20,18 @@ jobs:
         run: npm i --legacy-peer-deps
 
       - name: Build project
-        run: npm run build:dev
+        run: npm run build
 
       - name: Verify build output
         run: ls -la dist
 
-      - name: Deploy to Hostinger via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+      - name: Deploy to Strato via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.6
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          protocol: ftps
-          local-dir: ./dist/
-          server-dir: /public_html/schach-events/
+          username: ${{ secrets.SFTP_USERNAME }}
+          server: ${{ secrets.SFTP_SERVER }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          sftp_only: true
+          local_path: './dist/*'
+          remote_path: '/'
+          sftpArgs: '-o ConnectTimeout=5'
