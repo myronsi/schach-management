@@ -7,6 +7,8 @@ export interface Event {
   description?: string;
   type?: string;
   is_recurring?: number;
+  updated_at?: string;
+  updated_by?: string;
 }
 
 export type FilterType = 'future' | 'past' | 'today';

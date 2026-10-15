@@ -139,6 +139,7 @@ const MediaAdmin: React.FC = () => {
     } as any;
     
     if (mediaForm.form.id) payload.id = mediaForm.form.id;
+    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
     
     createUpdate.mutate(payload);
   };
@@ -149,7 +150,7 @@ const MediaAdmin: React.FC = () => {
       `Möchten Sie das Media-Element "${item.title}" wirklich löschen?`,
       async () => {
         try {
-          await deleteMedia(item.id);
+          await deleteMedia(item.id, item.updated_at);
           queryClient.invalidateQueries({ queryKey: ['media'] });
           showAlert('Erfolg', 'Media wurde erfolgreich gelöscht', 'success');
         } catch (err) {

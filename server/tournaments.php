@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/auth-middleware.php';
+require_once __DIR__ . '/audit.php';
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
@@ -44,7 +45,7 @@ try {
 
     if ($method === 'GET') {
         if ($tournamentId) {
-            $stmt = $pdo->prepare('SELECT id, type, year, first, second, third FROM tournaments WHERE id = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT id, type, year, first, second, third, updated_at, updated_by FROM tournaments WHERE id = ? LIMIT 1');
             $stmt->execute([$tournamentId]);
             $row = $stmt->fetch();
             if (!$row) {
@@ -63,10 +64,10 @@ try {
                 echo json_encode(['success' => false, 'message' => 'Invalid tournament type']);
                 exit;
             }
-            $stmt = $pdo->prepare('SELECT id, type, year, first, second, third FROM tournaments WHERE type = ? ORDER BY year DESC LIMIT 100');
+            $stmt = $pdo->prepare('SELECT id, type, year, first, second, third, updated_at, updated_by FROM tournaments WHERE type = ? ORDER BY year DESC LIMIT 100');
             $stmt->execute([$typeFilter]);
         } else {
-            $stmt = $pdo->query('SELECT id, type, year, first, second, third FROM tournaments ORDER BY year DESC, type ASC LIMIT 100');
+            $stmt = $pdo->query('SELECT id, type, year, first, second, third, updated_at, updated_by FROM tournaments ORDER BY year DESC, type ASC LIMIT 100');
         }
         $rows = $stmt->fetchAll();
         echo json_encode($rows);
@@ -104,13 +105,17 @@ try {
             $exists = (bool)$check->fetch();
 
             if ($exists) {
-                $stmt = $pdo->prepare('UPDATE tournaments SET type = ?, year = ?, first = ?, second = ?, third = ? WHERE id = ?');
-                $stmt->execute([$type, $year, $first, $second, $third, $id]);
+                auditCheckConflict($pdo, 'tournaments', $id, $data['expected_updated_at'] ?? null);
+                $before = auditFetchRow($pdo, 'tournaments', $id);
+                $stmt = $pdo->prepare('UPDATE tournaments SET type = ?, year = ?, first = ?, second = ?, third = ?, updated_by = ? WHERE id = ?');
+                $stmt->execute([$type, $year, $first, $second, $third, $user['username'], $id]);
+                auditLog($pdo, $user, 'tournaments', $id, 'update', $before, auditFetchRow($pdo, 'tournaments', $id));
                 echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
                 exit;
             } else {
                 $stmt = $pdo->prepare('INSERT INTO tournaments (id, type, year, first, second, third) VALUES (?, ?, ?, ?, ?, ?)');
                 $stmt->execute([$id, $type, $year, $first, $second, $third]);
+                auditLog($pdo, $user, 'tournaments', $id, 'create', null, auditFetchRow($pdo, 'tournaments', $id));
                 echo json_encode(['success' => true, 'message' => 'Created', 'id' => $id]);
                 exit;
             }
@@ -118,6 +123,7 @@ try {
             $stmt = $pdo->prepare('INSERT INTO tournaments (type, year, first, second, third) VALUES (?, ?, ?, ?, ?)');
             $stmt->execute([$type, $year, $first, $second, $third]);
             $newId = (int)$pdo->lastInsertId();
+            auditLog($pdo, $user, 'tournaments', $newId, 'create', null, auditFetchRow($pdo, 'tournaments', $newId));
             echo json_encode(['success' => true, 'message' => 'Created', 'id' => $newId]);
             exit;
         }
@@ -136,8 +142,11 @@ try {
             exit;
         }
 
+        auditCheckConflict($pdo, 'tournaments', $id, $data['expected_updated_at'] ?? null);
+        $before = auditFetchRow($pdo, 'tournaments', $id);
         $stmt = $pdo->prepare('DELETE FROM tournaments WHERE id = ?');
         $stmt->execute([$id]);
+        if ($stmt->rowCount()) auditLog($pdo, $user, 'tournaments', $id, 'delete', $before, null);
         echo json_encode(['success' => true, 'message' => 'Deleted', 'id' => $id]);
         exit;
     }

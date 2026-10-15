@@ -30,12 +30,16 @@ interface TeamItem {
   squad?: string;
   notes?: string;
   founded?: number;
+  updated_at?: string;
+  updated_by?: string;
 }
 
 interface TeamDescription {
   id: number;
   name: string;
   text: string;
+  updated_at?: string;
+  updated_by?: string;
 }
 
 const fetchTeams = async (): Promise<TeamItem[]> => {
@@ -225,7 +229,9 @@ const TeamsAdmin: React.FC = () => {
   };
 
   const saveDescription = () => {
-    updateDescription.mutate(descForm);
+    const payload = { ...descForm } as any;
+    if (description?.updated_at) payload.expected_updated_at = description.updated_at;
+    updateDescription.mutate(payload);
   };
 
   const startCreate = () => {
@@ -277,6 +283,7 @@ const TeamsAdmin: React.FC = () => {
   const save = () => {
     const payload = { ...form } as any;
     if (form.id) payload.id = form.id;
+    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
     
     payload.record = JSON.stringify({
       w: recordW || 0,
@@ -306,7 +313,7 @@ const TeamsAdmin: React.FC = () => {
       `Möchten Sie das Team "${item.name}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.delete(API, { id: item.id });
+          const res = await httpUtils.delete(API, { id: item.id, expected_updated_at: item.updated_at });
           
           if (res.ok) {
             queryClient.invalidateQueries({ queryKey: ['teams'] });

@@ -26,6 +26,8 @@ interface TournamentItem {
   first: string;
   second?: string;
   third?: string;
+  updated_at?: string;
+  updated_by?: string;
 }
 
 const TOURNAMENT_TYPES = [
@@ -186,6 +188,7 @@ const TournamentsAdmin: React.FC = () => {
   const save = () => {
     const payload = { ...form } as any;
     if (form.id) payload.id = form.id;
+    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
     
     if (TYPES_WITH_ONLY_FIRST.includes(form.type || '')) {
       payload.second = '';
@@ -202,7 +205,7 @@ const TournamentsAdmin: React.FC = () => {
       `Möchten Sie das Turnier "${typeName} ${item.year}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.delete(API, { id: item.id });
+          const res = await httpUtils.delete(API, { id: item.id, expected_updated_at: item.updated_at });
           
           if (res.ok) {
             queryClient.invalidateQueries({ queryKey: ['tournaments'] });

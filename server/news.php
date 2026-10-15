@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/auth-middleware.php';
+require_once __DIR__ . '/audit.php';
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
@@ -43,7 +44,7 @@ try {
 
     if ($method === 'GET') {
         if ($slug) {
-            $stmt = $pdo->prepare('SELECT id, slug, title, description, content, date, image, link FROM news WHERE slug = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT id, slug, title, description, content, date, image, link, updated_at, updated_by FROM news WHERE slug = ? LIMIT 1');
             $stmt->execute([$slug]);
             $row = $stmt->fetch();
             if (!$row) {
@@ -56,14 +57,14 @@ try {
         }
         if (isset($input['q']) && trim($input['q']) !== '') {
             $q = '%' . $input['q'] . '%';
-            $stmt = $pdo->prepare('SELECT id, slug, title, description, date, image FROM news WHERE title LIKE ? OR description LIKE ? ORDER BY date DESC LIMIT 50');
+            $stmt = $pdo->prepare('SELECT id, slug, title, description, date, image, updated_at, updated_by FROM news WHERE title LIKE ? OR description LIKE ? ORDER BY date DESC LIMIT 50');
             $stmt->execute([$q, $q]);
             $rows = $stmt->fetchAll();
             echo json_encode($rows);
             exit;
         }
 
-        $stmt = $pdo->query('SELECT id, slug, title, description, date, image FROM news ORDER BY date DESC LIMIT 50');
+        $stmt = $pdo->query('SELECT id, slug, title, description, date, image, updated_at, updated_by FROM news ORDER BY date DESC LIMIT 50');
         $rows = $stmt->fetchAll();
         echo json_encode($rows);
         exit;
@@ -108,13 +109,17 @@ try {
             }
 
             if ($exists) {
-                $stmt = $pdo->prepare('UPDATE news SET slug = ?, title = ?, description = ?, content = ?, date = ?, image = ?, link = ? WHERE id = ?');
-                $stmt->execute([$slugv, $title, $description, $content, $date, $image, $link, $id]);
+                auditCheckConflict($pdo, 'news', $id, $data['expected_updated_at'] ?? null);
+                $before = auditFetchRow($pdo, 'news', $id);
+                $stmt = $pdo->prepare('UPDATE news SET slug = ?, title = ?, description = ?, content = ?, date = ?, image = ?, link = ?, updated_by = ? WHERE id = ?');
+                $stmt->execute([$slugv, $title, $description, $content, $date, $image, $link, $user['username'], $id]);
+                auditLog($pdo, $user, 'news', $id, 'update', $before, auditFetchRow($pdo, 'news', $id));
                 echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
                 exit;
             } else {
                 $stmt = $pdo->prepare('INSERT INTO news (id, slug, title, description, content, date, image, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
                 $stmt->execute([$id, $slugv, $title, $description, $content, $date, $image, $link]);
+                auditLog($pdo, $user, 'news', $id, 'create', null, auditFetchRow($pdo, 'news', $id));
                 echo json_encode(['success' => true, 'message' => 'Created', 'id' => $id]);
                 exit;
             }
@@ -130,6 +135,7 @@ try {
             $stmt = $pdo->prepare('INSERT INTO news (slug, title, description, content, date, image, link) VALUES (?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([$slugv, $title, $description, $content, $date, $image, $link]);
             $newId = (int)$pdo->lastInsertId();
+            auditLog($pdo, $user, 'news', $newId, 'create', null, auditFetchRow($pdo, 'news', $newId));
             echo json_encode(['success' => true, 'message' => 'Created', 'id' => $newId]);
             exit;
         }
@@ -150,16 +156,25 @@ try {
         }
 
         if ($id) {
+            auditCheckConflict($pdo, 'news', $id, $data['expected_updated_at'] ?? null);
+            $before = auditFetchRow($pdo, 'news', $id);
             $stmt = $pdo->prepare('DELETE FROM news WHERE id = ?');
             $stmt->execute([$id]);
+            if ($stmt->rowCount()) auditLog($pdo, $user, 'news', $id, 'delete', $before, null);
             echo json_encode(['success' => true, 'message' => 'Deleted', 'id' => $id]);
             exit;
         }
 
         if ($slugv) {
+            $beforeRowsStmt = $pdo->prepare('SELECT * FROM news WHERE slug = ?');
+            $beforeRowsStmt->execute([$slugv]);
+            $beforeRows = $beforeRowsStmt->fetchAll();
             $stmt = $pdo->prepare('DELETE FROM news WHERE slug = ?');
             $stmt->execute([$slugv]);
-            echo json_encode(['success' => true, 'message' => 'Deleted', 'slug' => $slugv]);
+            foreach ($beforeRows as $row) {
+                auditLog($pdo, $user, 'news', $row['id'], 'delete', $row, null);
+            }
+            echo json_encode(['success' => true, 'message' => 'Deleted', 'slug' => $slugv, 'affected_ids' => array_column($beforeRows, 'id')]);
             exit;
         }
     }

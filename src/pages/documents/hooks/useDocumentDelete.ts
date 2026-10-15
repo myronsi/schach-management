@@ -7,6 +7,7 @@ const API = 'https://sc-laufenburg.de/api/documents.php';
 interface DocumentItem {
   id: number;
   name: string;
+  updated_at?: string;
 }
 
 export const useDocumentDelete = () => {
@@ -35,12 +36,12 @@ export const useDocumentDelete = () => {
   const performDelete = async (item: DocumentItem, deleteType: 'deactivate' | 'hard') => {
     try {
       let endpoint = API;
-      let body: any = { id: item.id };
+      let body: any = { id: item.id, expected_updated_at: item.updated_at };
       
       if (deleteType === 'hard') {
         body.hard = true;
       } else if (deleteType === 'deactivate') {
-        const res = await httpUtils.post(API, { id: item.id, is_active: false });
+        const res = await httpUtils.post(API, { id: item.id, is_active: false, expected_updated_at: item.updated_at });
         const data = await res.json();
         
         if (res.ok && data.success) {

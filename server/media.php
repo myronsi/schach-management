@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/auth-middleware.php';
+require_once __DIR__ . '/audit.php';
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
@@ -18,7 +19,38 @@ $env = [];
 $envFile = __DIR__ . '/.env';
 if (file_exists($envFile)) $env = parse_ini_file($envFile);
 
+
 $uploadBaseDir = __DIR__ . '/../photos/';
+
+function removeMediaFile(?string $relativePath, string $uploadBaseDir): bool {
+    if (!$relativePath) return false;
+    $path = trim($relativePath);
+    if (preg_match('#^https?://#i', $path)) return false;
+    $path = ltrim($path, '/');
+    if (str_starts_with($path, 'photos/')) $path = substr($path, strlen('photos/'));
+    if ($path === '' || str_contains($path, '..')) return false;
+    $fullPath = rtrim($uploadBaseDir, '/') . '/' . $path;
+    if (!is_file($fullPath)) return false;
+    return @unlink($fullPath);
+}
+
+function mediaReferencedPaths(array $row): array {
+    $paths = [];
+    if (!empty($row['src'])) $paths[] = $row['src'];
+    $children = $row['children'] ?? [];
+    if (is_string($children)) {
+        $decoded = json_decode($children, true);
+        $children = is_array($decoded) ? $decoded : [];
+    }
+    if (is_array($children)) {
+        foreach ($children as $child) {
+            if (is_array($child) && !empty($child['src'])) $paths[] = $child['src'];
+            elseif (is_string($child) && $child !== '') $paths[] = $child;
+        }
+    }
+    return array_values(array_unique($paths));
+}
+
 
 if (!is_dir($uploadBaseDir)) {
     mkdir($uploadBaseDir, 0755, true);
@@ -106,7 +138,7 @@ try {
         }
         
         if ($id) {
-            $stmt = $pdo->prepare('SELECT id, src, title, description, children FROM media WHERE id = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT id, src, title, description, children, updated_at, updated_by FROM media WHERE id = ? LIMIT 1');
             $stmt->execute([$id]);
             $row = $stmt->fetch();
             if (!$row) {
@@ -118,7 +150,7 @@ try {
             exit;
         }
 
-        $stmt = $pdo->query('SELECT id, src, title, description, children FROM media ORDER BY id DESC');
+        $stmt = $pdo->query('SELECT id, src, title, description, children, updated_at, updated_by FROM media ORDER BY id DESC');
         $rows = $stmt->fetchAll();
         echo json_encode($rows);
         exit;
@@ -237,13 +269,17 @@ try {
             $exists = (bool)$check->fetch();
 
             if ($exists) {
-                $stmt = $pdo->prepare('UPDATE media SET src = ?, title = ?, description = ?, children = ? WHERE id = ?');
-                $stmt->execute([$src, $title, $description, $children, $id]);
+                auditCheckConflict($pdo, 'media', $id, $data['expected_updated_at'] ?? null);
+                $before = auditFetchRow($pdo, 'media', $id);
+                $stmt = $pdo->prepare('UPDATE media SET src = ?, title = ?, description = ?, children = ?, updated_by = ? WHERE id = ?');
+                $stmt->execute([$src, $title, $description, $children, $user['username'], $id]);
+                auditLog($pdo, $user, 'media', $id, 'update', $before, auditFetchRow($pdo, 'media', $id));
                 echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
                 exit;
             } else {
                 $stmt = $pdo->prepare('INSERT INTO media (id, src, title, description, children) VALUES (?, ?, ?, ?, ?)');
                 $stmt->execute([$id, $src, $title, $description, $children]);
+                auditLog($pdo, $user, 'media', $id, 'create', null, auditFetchRow($pdo, 'media', $id));
                 echo json_encode(['success' => true, 'message' => 'Created', 'id' => $id]);
                 exit;
             }
@@ -251,6 +287,7 @@ try {
             $stmt = $pdo->prepare('INSERT INTO media (src, title, description, children) VALUES (?, ?, ?, ?)');
             $stmt->execute([$src, $title, $description, $children]);
             $newId = (int)$pdo->lastInsertId();
+            auditLog($pdo, $user, 'media', $newId, 'create', null, auditFetchRow($pdo, 'media', $newId));
             echo json_encode(['success' => true, 'message' => 'Created', 'id' => $newId]);
             exit;
         }
@@ -269,9 +306,28 @@ try {
             exit;
         }
 
+        auditCheckConflict($pdo, 'media', $id, $data['expected_updated_at'] ?? null);
+        $before = auditFetchRow($pdo, 'media', $id);
+        if (!$before) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Media not found']);
+            exit;
+        }
+        $filePaths = mediaReferencedPaths($before);
+        $removedFiles = [];
+        foreach ($filePaths as $filePath) {
+            $removedFiles[$filePath] = removeMediaFile($filePath, $uploadBaseDir);
+        }
         $stmt = $pdo->prepare('DELETE FROM media WHERE id = ?');
         $stmt->execute([$id]);
-        echo json_encode(['success' => true, 'message' => 'Deleted', 'id' => $id]);
+        if ($stmt->rowCount()) {
+            auditLog($pdo, $user, 'media', $id, 'delete', [
+                'media' => $before,
+                'file_paths' => $filePaths,
+                'files_removed' => $removedFiles
+            ], null);
+        }
+        echo json_encode(['success' => true, 'message' => 'Deleted', 'id' => $id, 'file_paths' => $filePaths, 'files_removed' => $removedFiles]);
         exit;
     }
 

@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/auth-middleware.php';
+require_once __DIR__ . '/audit.php';
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
@@ -43,7 +44,7 @@ try {
 
     if ($method === 'GET') {
         if ($teamId === 0) {
-            $stmt = $pdo->prepare('SELECT id, name, text FROM teams WHERE id = 0 LIMIT 1');
+            $stmt = $pdo->prepare('SELECT id, name, text, updated_at, updated_by FROM teams WHERE id = 0 LIMIT 1');
             $stmt->execute();
             $row = $stmt->fetch();
             if (!$row) {
@@ -56,7 +57,7 @@ try {
         }
         
         if ($teamId) {
-            $stmt = $pdo->prepare('SELECT id, name, league, image, url, captain, contact, nextMatch, venue, record, squad, notes, founded FROM teams WHERE id = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT id, name, league, image, url, captain, contact, nextMatch, venue, record, squad, notes, founded, updated_at, updated_by FROM teams WHERE id = ? LIMIT 1');
             $stmt->execute([$teamId]);
             $row = $stmt->fetch();
             if (!$row) {
@@ -68,7 +69,7 @@ try {
             exit;
         }
 
-        $stmt = $pdo->query('SELECT id, name, league, image, url, captain, contact, nextMatch, venue, record, squad, notes, founded FROM teams WHERE id != 0 ORDER BY name ASC LIMIT 100');
+        $stmt = $pdo->query('SELECT id, name, league, image, url, captain, contact, nextMatch, venue, record, squad, notes, founded, updated_at, updated_by FROM teams WHERE id != 0 ORDER BY name ASC LIMIT 100');
         $rows = $stmt->fetchAll();
         echo json_encode($rows);
         exit;
@@ -96,11 +97,15 @@ try {
             $exists = (bool)$check->fetch();
             
             if ($exists) {
-                $stmt = $pdo->prepare('UPDATE teams SET name = ?, text = ? WHERE id = 0');
-                $stmt->execute([$name, $text]);
+                auditCheckConflict($pdo, 'teams', 0, $data['expected_updated_at'] ?? null);
+                $before = auditFetchRow($pdo, 'teams', 0);
+                $stmt = $pdo->prepare('UPDATE teams SET name = ?, text = ?, updated_by = ? WHERE id = 0');
+                $stmt->execute([$name, $text, $user['username']]);
+                auditLog($pdo, $user, 'teams', 0, 'update', $before, auditFetchRow($pdo, 'teams', 0));
             } else {
                 $stmt = $pdo->prepare('INSERT INTO teams (id, name, text) VALUES (0, ?, ?)');
                 $stmt->execute([$name, $text]);
+                auditLog($pdo, $user, 'teams', 0, 'create', null, auditFetchRow($pdo, 'teams', 0));
             }
             
             echo json_encode(['success' => true, 'message' => 'Description updated', 'id' => 0]);
@@ -135,13 +140,17 @@ try {
             $exists = (bool)$check->fetch();
 
             if ($exists) {
-                $stmt = $pdo->prepare('UPDATE teams SET name = ?, league = ?, image = ?, url = ?, captain = ?, contact = ?, nextMatch = ?, venue = ?, record = ?, squad = ?, notes = ?, founded = ? WHERE id = ?');
-                $stmt->execute([$name, $league, $image, $url, $captain, $contact, $nextMatch, $venue, $record, $squad, $notes, $founded, $id]);
+                auditCheckConflict($pdo, 'teams', $id, $data['expected_updated_at'] ?? null);
+                $before = auditFetchRow($pdo, 'teams', $id);
+                $stmt = $pdo->prepare('UPDATE teams SET name = ?, league = ?, image = ?, url = ?, captain = ?, contact = ?, nextMatch = ?, venue = ?, record = ?, squad = ?, notes = ?, founded = ?, updated_by = ? WHERE id = ?');
+                $stmt->execute([$name, $league, $image, $url, $captain, $contact, $nextMatch, $venue, $record, $squad, $notes, $founded, $user['username'], $id]);
+                auditLog($pdo, $user, 'teams', $id, 'update', $before, auditFetchRow($pdo, 'teams', $id));
                 echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
                 exit;
             } else {
                 $stmt = $pdo->prepare('INSERT INTO teams (id, name, league, image, url, captain, contact, nextMatch, venue, record, squad, notes, founded) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                 $stmt->execute([$id, $name, $league, $image, $url, $captain, $contact, $nextMatch, $venue, $record, $squad, $notes, $founded]);
+                auditLog($pdo, $user, 'teams', $id, 'create', null, auditFetchRow($pdo, 'teams', $id));
                 echo json_encode(['success' => true, 'message' => 'Created', 'id' => $id]);
                 exit;
             }
@@ -149,6 +158,7 @@ try {
             $stmt = $pdo->prepare('INSERT INTO teams (name, league, image, url, captain, contact, nextMatch, venue, record, squad, notes, founded) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([$name, $league, $image, $url, $captain, $contact, $nextMatch, $venue, $record, $squad, $notes, $founded]);
             $newId = (int)$pdo->lastInsertId();
+            auditLog($pdo, $user, 'teams', $newId, 'create', null, auditFetchRow($pdo, 'teams', $newId));
             echo json_encode(['success' => true, 'message' => 'Created', 'id' => $newId]);
             exit;
         }
@@ -167,8 +177,11 @@ try {
             exit;
         }
 
+        auditCheckConflict($pdo, 'teams', $id, $data['expected_updated_at'] ?? null);
+        $before = auditFetchRow($pdo, 'teams', $id);
         $stmt = $pdo->prepare('DELETE FROM teams WHERE id = ?');
         $stmt->execute([$id]);
+        if ($stmt->rowCount()) auditLog($pdo, $user, 'teams', $id, 'delete', $before, null);
         echo json_encode(['success' => true, 'message' => 'Deleted', 'id' => $id]);
         exit;
     }

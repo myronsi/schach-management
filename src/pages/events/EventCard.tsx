@@ -15,7 +15,7 @@ const API = 'https://sc-laufenburg.de/api/events.php';
 interface EventCardProps {
   event: Event;
   onUpdate: () => void;
-  onDelete: (id: string, title: string) => void;
+  onDelete: (id: string, title: string, expected_updated_at?: string) => void;
 }
 
 const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
@@ -83,7 +83,8 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
     
     try {
       const payload: any = { 
-        id: String(editingId)
+        id: String(editingId),
+        expected_updated_at: originalEvent?.updated_at
       };
       
       if (editForm.title !== undefined) payload.title = editForm.title;
@@ -319,7 +320,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => onDelete(event.id, event.title)}
+                onClick={() => onDelete(event.id, event.title, event.updated_at)}
                 className="flex items-center justify-center gap-1 text-red-600 hover:text-red-700 w-full sm:w-auto"
               >
                 <Trash2 className="w-4 h-4" />

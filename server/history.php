@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/auth-middleware.php';
+require_once __DIR__ . '/audit.php';
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
@@ -44,7 +45,7 @@ try {
 
     if ($method === 'GET') {
         if ($historyId) {
-            $stmt = $pdo->prepare('SELECT id, date, text FROM history WHERE id = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT id, date, text, updated_at, updated_by FROM history WHERE id = ? LIMIT 1');
             $stmt->execute([$historyId]);
             $row = $stmt->fetch();
             if (!$row) {
@@ -56,7 +57,7 @@ try {
             exit;
         }
 
-        $stmt = $pdo->query('SELECT id, date, text FROM history ORDER BY date DESC LIMIT 100');
+        $stmt = $pdo->query('SELECT id, date, text, updated_at, updated_by FROM history ORDER BY date DESC LIMIT 100');
         $rows = $stmt->fetchAll();
         echo json_encode($rows);
         exit;
@@ -82,13 +83,17 @@ try {
         $exists = (bool)$check->fetch();
 
         if ($exists) {
-            $stmt = $pdo->prepare('UPDATE history SET date = ?, text = ? WHERE id = ?');
-            $stmt->execute([$date, $text, $id]);
+            auditCheckConflict($pdo, 'history', $id, $data['expected_updated_at'] ?? null);
+            $before = auditFetchRow($pdo, 'history', $id);
+            $stmt = $pdo->prepare('UPDATE history SET date = ?, text = ?, updated_by = ? WHERE id = ?');
+            $stmt->execute([$date, $text, $user['username'], $id]);
+            auditLog($pdo, $user, 'history', $id, 'update', $before, auditFetchRow($pdo, 'history', $id));
             echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
             exit;
         } else {
             $stmt = $pdo->prepare('INSERT INTO history (id, date, text) VALUES (?, ?, ?)');
             $stmt->execute([$id, $date, $text]);
+            auditLog($pdo, $user, 'history', $id, 'create', null, auditFetchRow($pdo, 'history', $id));
             echo json_encode(['success' => true, 'message' => 'Created', 'id' => $id]);
             exit;
         }
@@ -107,8 +112,11 @@ try {
             exit;
         }
 
+        auditCheckConflict($pdo, 'history', $id, $data['expected_updated_at'] ?? null);
+        $before = auditFetchRow($pdo, 'history', $id);
         $stmt = $pdo->prepare('DELETE FROM history WHERE id = ?');
         $stmt->execute([$id]);
+        if ($stmt->rowCount()) auditLog($pdo, $user, 'history', $id, 'delete', $before, null);
         echo json_encode(['success' => true, 'message' => 'Deleted', 'id' => $id]);
         exit;
     }

@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/auth-middleware.php';
+require_once __DIR__ . '/audit.php';
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
@@ -94,15 +95,22 @@ try {
                 exit;
             }
 
+            $beforeUser = [
+                'username' => $exists['username'],
+                'status' => $exists['status'] ?? null,
+                'password_status' => $exists['password_status'] ?? null,
+                'first_name' => $exists['first_name'] ?? null,
+                'last_name' => $exists['last_name'] ?? null,
+            ];
+
             if ($passwordValue !== '') {
                 $hashedPassword = password_hash($passwordValue, PASSWORD_DEFAULT);
                 $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
                 $stmt->execute([$hashedPassword, $statusValue, $passwordStatusValue, $firstNameValue ?? '', $lastNameValue ?? '', $usernameValue]);
             } else {
                 $existingPassword = $exists['password'];
-                
                 $isHashed = preg_match('/^\$2[ayb]\$.{56}$/', $existingPassword);
-                
+
                 if (!$isHashed && $existingPassword !== '') {
                     $hashedPassword = password_hash($existingPassword, PASSWORD_DEFAULT);
                     $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
@@ -112,7 +120,12 @@ try {
                     $stmt->execute([$statusValue, $passwordStatusValue, $firstNameValue ?? '', $lastNameValue ?? '', $usernameValue]);
                 }
             }
-            
+
+            $afterStmt = $pdo->prepare('SELECT username, status, password_status, first_name, last_name FROM users WHERE username = ? LIMIT 1');
+            $afterStmt->execute([$usernameValue]);
+            $afterUser = $afterStmt->fetch();
+            auditLog($pdo, $user, 'authm', $usernameValue, 'update', $beforeUser, $afterUser);
+
             echo json_encode(['success' => true, 'message' => 'Updated', 'username' => $usernameValue]);
             exit;
         } else {
@@ -164,6 +177,7 @@ try {
             exit;
         }
         
+        auditLog($pdo, $user, 'authm', $usernameValue, 'delete', $beforeUser, null);
         echo json_encode(['success' => true, 'message' => 'Deleted', 'username' => $usernameValue]);
         exit;
     }
