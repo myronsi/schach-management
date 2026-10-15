@@ -68,7 +68,11 @@ const MediaAdmin: React.FC = () => {
       mediaForm.resetForm();
     },
     onError: (error: Error) => {
-      showAlert('Fehler', error.message || 'Konnte nicht speichern', 'error');
+      if (isConflictError(error)) {
+        showAlert('Änderungskonflikt', conflictDescription(error), 'error');
+      } else {
+        showAlert('Fehler', error.message || 'Konnte nicht speichern', 'error');
+      }
     }
   });
 
@@ -154,7 +158,11 @@ const MediaAdmin: React.FC = () => {
           queryClient.invalidateQueries({ queryKey: ['media'] });
           showAlert('Erfolg', 'Media wurde erfolgreich gelöscht', 'success');
         } catch (err) {
-          showAlert('Fehler', 'Fehler beim Löschen', 'error');
+          if (isConflictError(err)) {
+            showAlert('Änderungskonflikt', conflictDescription(err), 'error');
+          } else {
+            showAlert('Fehler', 'Fehler beim Löschen', 'error');
+          }
         }
       }
     );

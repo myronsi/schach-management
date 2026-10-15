@@ -1,6 +1,7 @@
 import type { MediaItem } from './types';
 import { API } from './constants';
 import { httpUtils } from '@/lib/auth-utils';
+import { markConflict } from '@/lib/conflict';
 
 export const fetchMedia = async (): Promise<MediaItem[]> => {
   const res = await fetch(API);
@@ -18,7 +19,7 @@ export const postMedia = async (payload: any) => {
   const res = await httpUtils.post(API, payload);
   const data = await res.json();
   if (!res.ok || data.success === false) {
-    throw new Error(data.message || 'Failed to save');
+    throw markConflict(new Error(data.message || 'Failed to save'), data.conflict === true || res.status === 409);
   }
   return data;
 };
@@ -27,7 +28,7 @@ export const deleteMedia = async (id: number, expected_updated_at?: string) => {
   const res = await httpUtils.delete(API, { id, expected_updated_at });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.message || 'Failed to delete media');
+    throw markConflict(new Error(data.message || 'Failed to delete media'), data.conflict === true || res.status === 409);
   }
   return true;
 };

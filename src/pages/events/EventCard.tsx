@@ -10,6 +10,8 @@ import { httpUtils } from '@/lib/auth-utils';
 import type { Event } from './eventUtils';
 import { formatDate, getEventTypeColor, formatDateForAPI, parseDateString } from './eventUtils';
 import AuditMeta from '@/components/AuditMeta';
+import { useToast } from '@/hooks/use-toast';
+import { isConflictError, conflictDescription } from '@/lib/conflict';
 
 const API = 'https://sc-laufenburg.de/api/events.php';
 
@@ -25,6 +27,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
   const [originalEvent, setOriginalEvent] = useState<Event | null>(null);
   const [editStartDate, setEditStartDate] = useState<Date | undefined>(undefined);
   const [editEndDate, setEditEndDate] = useState<Date | undefined>(undefined);
+  const { toast } = useToast();
   
   // Check if current event has date range
   const hasDateRange = editForm.date?.includes(':') || event.date?.includes(':');
@@ -108,13 +111,26 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
         setEditStartDate(undefined);
         setEditEndDate(undefined);
       } else {
-        const errorBody = await res.text();
-        console.error('Edit failed', errorBody);
-        throw new Error('Edit failed');
+        const result = await res.json().catch(() => ({}));
+        const error = new Error(result.message || 'Edit failed') as Error & { conflict?: boolean };
+        error.conflict = result.conflict === true || res.status === 409;
+        throw error;
       }
     } catch (err) {
-      console.error('Network error', err);
-      throw err;
+      console.error('Edit failed', err);
+      if (isConflictError(err)) {
+        toast({
+          title: 'Änderungskonflikt',
+          description: conflictDescription(err),
+          variant: 'destructive'
+        });
+      } else {
+        toast({
+          title: 'Fehler',
+          description: err instanceof Error ? err.message : 'Konnte Ereignis nicht speichern',
+          variant: 'destructive'
+        });
+      }
     }
   };
 

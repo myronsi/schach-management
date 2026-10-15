@@ -125,7 +125,11 @@ const EventsList: React.FC = () => {
             await loadEvents();
             showAlert('Erfolg', 'Ereignis wurde erfolgreich gelöscht', 'success');
           } else {
-            showAlert('Fehler', 'Fehler beim Löschen', 'error');
+            const result = await res.json().catch(() => ({}));
+            const conflict = result.conflict === true || res.status === 409;
+            showAlert(conflict ? 'Änderungskonflikt' : 'Fehler', conflict
+              ? (result.message || 'Dieser Eintrag wurde zwischenzeitlich geändert. Bitte neu laden.')
+              : 'Fehler beim Löschen', 'error');
           }
         } catch (err) {
           showAlert('Fehler', 'Netzwerkfehler', 'error');

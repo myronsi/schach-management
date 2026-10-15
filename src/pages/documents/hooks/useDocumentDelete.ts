@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { httpUtils } from '@/lib/auth-utils';
+import { isConflictError, conflictDescription } from '@/lib/conflict';
 
 const API = 'https://sc-laufenburg.de/api/documents.php';
 
@@ -48,7 +49,9 @@ export const useDocumentDelete = () => {
           queryClient.invalidateQueries({ queryKey: ['documents'] });
           showAlert('Erfolg', 'Dokument wurde deaktiviert', 'success');
         } else {
-          showAlert('Fehler', data.message || 'Fehler beim Deaktivieren', 'error');
+          showAlert(isConflictError({ message: data.message, conflict: data.conflict }) ? 'Änderungskonflikt' : 'Fehler',
+            isConflictError({ message: data.message, conflict: data.conflict }) ? conflictDescription(new Error(data.message || '')) : (data.message || 'Fehler beim Deaktivieren'),
+            'error');
         }
         return;
       }
@@ -64,10 +67,15 @@ export const useDocumentDelete = () => {
           : 'Dokument wurde gelöscht';
         showAlert('Erfolg', message, 'success');
       } else {
-        showAlert('Fehler', data.message || 'Fehler beim Löschen', 'error');
+        const conflict = isConflictError({ message: data.message, conflict: data.conflict });
+        showAlert(conflict ? 'Änderungskonflikt' : 'Fehler',
+          conflict ? conflictDescription(new Error(data.message || '')) : (data.message || 'Fehler beim Löschen'),
+          'error');
       }
     } catch (err) {
-      showAlert('Fehler', 'Netzwerkfehler', 'error');
+      const error = err as Error;
+      const conflict = isConflictError(error);
+      showAlert(conflict ? 'Änderungskonflikt' : 'Fehler', conflict ? conflictDescription(error) : 'Netzwerkfehler', 'error');
     }
   };
 

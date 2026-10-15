@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { httpUtils } from '@/lib/auth-utils';
+import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
 
 const API = 'https://sc-laufenburg.de/api/documents.php';
 
@@ -29,7 +30,7 @@ const postDocument = async (payload: any) => {
   const res = await httpUtils.post(API, payload);
   const data = await res.json();
   if (!res.ok || data.success === false) {
-    throw new Error(data.message || 'Failed to save');
+    throw markConflict(new Error(data.message || 'Failed to save'), data.conflict === true || res.status === 409);
   }
   return data;
 };
@@ -57,10 +58,10 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
         onSuccessCallback();
       }
     },
-    onError: () => {
-      toast({ 
-        title: 'Fehler', 
-        description: 'Konnte nicht speichern',
+    onError: (error: Error) => {
+      toast({
+        title: isConflictError(error) ? 'Änderungskonflikt' : 'Fehler',
+        description: isConflictError(error) ? conflictDescription(error) : 'Konnte nicht speichern',
         variant: 'destructive'
       });
     }
