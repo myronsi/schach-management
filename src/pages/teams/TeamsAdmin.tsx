@@ -13,6 +13,7 @@ import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { httpUtils } from '@/lib/auth-utils';
+import AuditMeta from '@/components/AuditMeta';
 
 const API = 'https://sc-laufenburg.de/api/teams.php';
 
@@ -374,6 +375,7 @@ const TeamsAdmin: React.FC = () => {
                         </div>
                         {t.captain && <p className="mt-1 text-sm text-gray-700">Mannschaftsführer: {t.captain}</p>}
                         {t.venue && <p className="mt-1 text-sm text-gray-700">Spielort: {t.venue}</p>}
+                        <AuditMeta updatedAt={t.updated_at} updatedBy={t.updated_by} />
                       </div>
                       
                       <div className="flex flex-col sm:flex-row gap-2 sm:ml-4 w-full sm:w-auto">

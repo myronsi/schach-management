@@ -16,6 +16,7 @@ import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { httpUtils } from '@/lib/auth-utils';
+import AuditMeta from '@/components/AuditMeta';
 
 const API = 'https://sc-laufenburg.de/api/tournaments.php';
 
@@ -310,6 +311,7 @@ const TournamentsAdmin: React.FC = () => {
                           <p><strong>1. Platz:</strong> {t.first}</p>
                           {t.second && <p><strong>2. Platz:</strong> {t.second}</p>}
                           {t.third && <p><strong>3. Platz:</strong> {t.third}</p>}
+                          <AuditMeta updatedAt={t.updated_at} updatedBy={t.updated_by} />
                         </div>
                       </div>
                       

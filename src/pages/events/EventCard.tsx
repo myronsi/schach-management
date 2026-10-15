@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { httpUtils } from '@/lib/auth-utils';
 import type { Event } from './eventUtils';
 import { formatDate, getEventTypeColor, formatDateForAPI, parseDateString } from './eventUtils';
+import AuditMeta from '@/components/AuditMeta';
 
 const API = 'https://sc-laufenburg.de/api/events.php';
 
@@ -305,6 +306,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
               {event.description && (
                 <p className="mt-2 text-gray-700 break-words">{event.description}</p>
               )}
+              <AuditMeta updatedAt={event.updated_at} updatedBy={event.updated_by} />
             </div>
             
             <div className="flex flex-col sm:flex-row gap-2 sm:ml-4 w-full sm:w-auto">

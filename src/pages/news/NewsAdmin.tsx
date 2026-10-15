@@ -14,6 +14,7 @@ import { Edit, Plus, Trash2, RefreshCcw } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { httpUtils } from '@/lib/auth-utils';
+import AuditMeta from '@/components/AuditMeta';
 
 const API = 'https://sc-laufenburg.de/api/news.php';
 
@@ -274,6 +275,7 @@ const NewsAdmin: React.FC = () => {
                         <h3 className="text-lg font-semibold text-gray-900 mb-2">{n.title}</h3>
                         <div className="text-sm text-gray-600 mb-2">{n.slug} • {n.date}</div>
                         {n.description && <p className="mt-2 text-gray-700 break-words">{n.description}</p>}
+                        <AuditMeta updatedAt={n.updated_at} updatedBy={n.updated_by} />
                       </div>
                       
                       <div className="flex flex-col sm:flex-row gap-2 sm:ml-4 w-full sm:w-auto">

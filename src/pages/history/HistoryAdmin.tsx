@@ -12,6 +12,7 @@ import { Edit, Plus, Trash2 } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { httpUtils } from '@/lib/auth-utils';
+import AuditMeta from '@/components/AuditMeta';
 
 const API = 'https://sc-laufenburg.de/api/history.php';
 
@@ -225,6 +226,7 @@ const HistoryAdmin: React.FC = () => {
                       <div className="flex-1">
                         <h3 className="text-lg font-semibold text-gray-900 mb-2">{h.date}</h3>
                         <p className="mt-2 text-gray-700 break-words whitespace-pre-wrap">{h.text}</p>
+                        <AuditMeta updatedAt={h.updated_at} updatedBy={h.updated_by} />
                       </div>
                       
                       <div className="flex flex-col sm:flex-row gap-2 sm:ml-4 w-full sm:w-auto">

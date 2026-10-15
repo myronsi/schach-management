@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { FileText, File, Folder, HardDrive, ExternalLink, Edit, Trash2, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatFileSize, getCategoryLabel } from '../utils.tsx';
+import AuditMeta from '@/components/AuditMeta';
 
 interface DocumentItem {
   id: number;
@@ -15,6 +16,7 @@ interface DocumentItem {
   file_size: number | null;
   upload_date: string;
   updated_at: string;
+  updated_by?: string;
   is_active: boolean;
 }
 
@@ -79,6 +81,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
                     </p>
                   )}
                 </div>
+                <AuditMeta updatedAt={item.updated_at} updatedBy={item.updated_by} />
               </div>
             </div>
           </div>

@@ -5,6 +5,7 @@ import { Edit, Trash2 } from 'lucide-react';
 import type { MediaItem } from './types';
 import { parseChildren, buildFullSrc } from './utils';
 import { BASE_URL } from './constants';
+import AuditMeta from '@/components/AuditMeta';
 
 interface MediaCardProps {
   media: MediaItem;
@@ -49,6 +50,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onEdit, onDelete })
                 <span className="text-sm text-gray-600">{childrenArray.length} Bild(er)</span>
               </div>
             )}
+            <AuditMeta updatedAt={media.updated_at} updatedBy={media.updated_by} />
           </div>
           
           <div className="flex flex-col sm:flex-row gap-2 sm:ml-4 w-full sm:w-auto">
