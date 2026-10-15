@@ -15,6 +15,7 @@ import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { httpUtils } from '@/lib/auth-utils';
 import AuditMeta from '@/components/AuditMeta';
 import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
+import { EditLockError, useEditLock } from '@/lib/editLock';
 
 const API = 'https://sc-laufenburg.de/api/teams.php';
 
@@ -67,6 +68,7 @@ const postTeam = async (payload: any) => {
 
 const TeamsAdmin: React.FC = () => {
   const queryClient = useQueryClient();
+  const editLock = useEditLock('teams');
   const { toast } = useToast();
   const { data, isLoading, error } = useQuery<TeamItem[], Error>({ queryKey: ['teams'], queryFn: fetchTeams });
   const { data: description } = useQuery<TeamDescription, Error>({ queryKey: ['description'], queryFn: fetchDescription });
@@ -182,9 +184,10 @@ const TeamsAdmin: React.FC = () => {
 
   const createUpdate = useMutation<any, Error, any>({
     mutationFn: postTeam,
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['teams'] });
       toast({ title: 'Erfolg', description: 'Team gespeichert' });
+      await editLock.release();
       setOpen(false);
       setEditing(null);
       setForm({});
@@ -204,9 +207,10 @@ const TeamsAdmin: React.FC = () => {
 
   const updateDescription = useMutation<any, Error, any>({
     mutationFn: postTeam,
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['description'] });
       toast({ title: 'Erfolg', description: 'Beschreibung gespeichert' });
+      await editLock.release();
       setDescriptionOpen(false);
     },
     onError: (error: Error) => {
@@ -222,7 +226,14 @@ const TeamsAdmin: React.FC = () => {
     }
   });
 
-  const startEditDescription = () => {
+  const startEditDescription = async () => {
+    try {
+      await editLock.acquire(0);
+    } catch (err) {
+      if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
+      toast({ title: 'Fehler', description: 'Bearbeitung konnte nicht gestartet werden', variant: 'destructive' });
+      return;
+    }
     if (description) {
       setDescForm({ ...description });
     } else {
@@ -261,6 +272,7 @@ const TeamsAdmin: React.FC = () => {
 
   const startEdit = async (item: TeamItem) => {
     try {
+      await editLock.acquire(item.id);
       const full = await fetchTeamById(item.id);
       setEditing(full);
       setForm({ ...full });
@@ -286,6 +298,7 @@ const TeamsAdmin: React.FC = () => {
       
       setOpen(true);
     } catch (err) {
+      if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
       toast({ title: 'Fehler', description: 'Konnte Team nicht laden' });
     }
   };
@@ -416,7 +429,7 @@ const TeamsAdmin: React.FC = () => {
             </div>
           )}
 
-          <Dialog open={descriptionOpen} onOpenChange={setDescriptionOpen}>
+          <Dialog open={descriptionOpen} onOpenChange={(value) => { if (!value) void editLock.release(); setDescriptionOpen(value); }}>
             <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Mannschaften Beschreibung bearbeiten</DialogTitle>
@@ -455,7 +468,7 @@ const TeamsAdmin: React.FC = () => {
             </DialogContent>
           </Dialog>
 
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(value) => { if (!value) void editLock.release(); setOpen(value); }}>
             <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh]">
                 <DialogHeader>
                   <DialogTitle>{editing ? 'Mannschaft bearbeiten' : 'Neue Mannschaft'}</DialogTitle>

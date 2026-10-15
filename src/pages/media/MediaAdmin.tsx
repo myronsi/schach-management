@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { EditLockError, useEditLock } from '@/lib/editLock';
 import Navbar from '@/components/ui/navbar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,6 +18,7 @@ import { BASE_URL } from './constants';
 
 const MediaAdmin: React.FC = () => {
   const queryClient = useQueryClient();
+  const editLock = useEditLock('media');
   const { data, isLoading, error } = useQuery<MediaItem[], Error>({ 
     queryKey: ['media'], 
     queryFn: fetchMedia 
@@ -61,8 +63,9 @@ const MediaAdmin: React.FC = () => {
 
   const createUpdate = useMutation<any, Error, any>({
     mutationFn: postMedia,
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['media'] });
+      await editLock.release();
       setOpen(false);
       setEditing(null);
       mediaForm.resetForm();
@@ -87,6 +90,7 @@ const MediaAdmin: React.FC = () => {
 
   const startEdit = async (item: MediaItem) => {
     try {
+      await editLock.acquire(item.id);
       const full = await fetchMediaById(item.id);
       setEditing(full);
       mediaForm.resetForm();
@@ -105,6 +109,8 @@ const MediaAdmin: React.FC = () => {
       mediaForm.setChildrenList(childrenWithFullUrls);
       setOpen(true);
     } catch (err) {
+      if (err instanceof EditLockError) { showAlert('Bearbeitung gesperrt', err.message, 'error'); return; }
+      void editLock.release();
       showAlert('Fehler', 'Konnte Media nicht laden', 'error');
     }
   };
@@ -169,6 +175,7 @@ const MediaAdmin: React.FC = () => {
   };
 
   const handleCancel = () => {
+    void editLock.release();
     setOpen(false);
     setEditing(null);
     mediaForm.resetForm();
@@ -216,7 +223,7 @@ const MediaAdmin: React.FC = () => {
 
           <MediaWizard
             open={open}
-            onOpenChange={setOpen}
+            onOpenChange={(value) => { if (!value) void editLock.release(); setOpen(value); }}
             editing={editing}
             form={mediaForm.form}
             childrenList={mediaForm.childrenList}

@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { httpUtils } from '@/lib/auth-utils';
 import AuditMeta from '@/components/AuditMeta';
 import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
+import { EditLockError, useEditLock } from '@/lib/editLock';
 
 const API = 'https://sc-laufenburg.de/api/tournaments.php';
 
@@ -59,6 +60,7 @@ const postTournament = async (payload: any) => {
 
 const TournamentsAdmin: React.FC = () => {
   const queryClient = useQueryClient();
+  const editLock = useEditLock('tournaments');
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<TournamentItem | null>(null);
@@ -152,9 +154,10 @@ const TournamentsAdmin: React.FC = () => {
 
   const createUpdate = useMutation<any, Error, any>({
     mutationFn: postTournament,
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['tournaments'] });
       toast({ title: 'Erfolg', description: 'Turnier gespeichert' });
+      await editLock.release();
       setOpen(false);
       setEditing(null);
       setForm({});
@@ -182,11 +185,13 @@ const TournamentsAdmin: React.FC = () => {
 
   const startEdit = async (item: TournamentItem) => {
     try {
+      await editLock.acquire(item.id);
       const full = await fetchTournamentById(item.id);
       setEditing(full);
       setForm({ ...full });
       setOpen(true);
     } catch (err) {
+      if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
       toast({ title: 'Fehler', description: 'Konnte Turnier nicht laden' });
     }
   };
@@ -349,7 +354,7 @@ const TournamentsAdmin: React.FC = () => {
             </div>
           )}
 
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(value) => { if (!value) void editLock.release(); setOpen(value); }}>
             <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh]">
                 <DialogHeader>
                   <DialogTitle>{editing ? 'Turnier bearbeiten' : 'Neues Turnier'}</DialogTitle>

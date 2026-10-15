@@ -12,6 +12,7 @@ import { formatDate, getEventTypeColor, formatDateForAPI, parseDateString } from
 import AuditMeta from '@/components/AuditMeta';
 import { useToast } from '@/hooks/use-toast';
 import { isConflictError, conflictDescription } from '@/lib/conflict';
+import { EditLockError, useEditLock } from '@/lib/editLock';
 
 const API = 'https://sc-laufenburg.de/api/events.php';
 
@@ -23,6 +24,7 @@ interface EventCardProps {
 
 const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const editLock = useEditLock('events');
   const [editForm, setEditForm] = useState<Partial<Event>>({});
   const [originalEvent, setOriginalEvent] = useState<Event | null>(null);
   const [editStartDate, setEditStartDate] = useState<Date | undefined>(undefined);
@@ -51,7 +53,17 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
     return hasAnyChanges;
   };
 
-  const handleEdit = (event: Event) => {
+  const handleEdit = async (event: Event) => {
+    try {
+      await editLock.acquire(event.id);
+    } catch (err) {
+      if (err instanceof EditLockError) {
+        toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' });
+        return;
+      }
+      toast({ title: 'Fehler', description: 'Bearbeitung konnte nicht gestartet werden', variant: 'destructive' });
+      return;
+    }
     setEditingId(event.id);
     setOriginalEvent(event);
     setEditForm(event);
@@ -105,6 +117,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
       
       if (res.ok) {
         onUpdate();
+        await editLock.release();
         setEditingId(null);
         setOriginalEvent(null);
         setEditForm({});
@@ -135,6 +148,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
   };
 
   const handleCancelEdit = () => {
+    void editLock.release();
     setEditingId(null);
     setOriginalEvent(null);
     setEditForm({});
