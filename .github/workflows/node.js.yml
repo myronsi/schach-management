@@ -35,3 +35,14 @@ jobs:
           local_path: './dist/*'
           remote_path: '/management/'
           sftpArgs: '-o ConnectTimeout=5'
+
+      - name: Deploy API to Strato via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.6
+        with:
+          username: ${{ secrets.SFTP_USERNAME }}
+          server: ${{ secrets.SFTP_SERVER }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          sftp_only: true
+          local_path: './server/*'
+          remote_path: '/api/'
+          sftpArgs: '-o ConnectTimeout=5'
