@@ -12,6 +12,7 @@ import type { LucideIcon } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { httpUtils } from '@/lib/auth-utils';
+import AuditMeta from '@/components/AuditMeta';
 
 const API = 'https://sc-laufenburg.de/api/fastinfo.php';
 
@@ -238,6 +239,7 @@ const FastInfoAdmin: React.FC = () => {
                             <strong>Zielwert:</strong> {item.targetValue.toLocaleString()}
                           </p>
                           <p><strong>Verzögerung:</strong> {item.delay}ms</p>
+                          <AuditMeta updatedAt={item.updated_at} updatedBy={item.updated_by} />
                         </div>
                       </div>
                       
