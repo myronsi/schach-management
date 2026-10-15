@@ -14,6 +14,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { httpUtils } from '@/lib/auth-utils';
 import AuditMeta from '@/components/AuditMeta';
 import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
+import { EditLockError, useEditLock } from '@/lib/editLock';
 
 const API = 'https://sc-laufenburg.de/api/history.php';
 
@@ -42,6 +43,7 @@ const postHistory = async (payload: any) => {
 
 const HistoryAdmin: React.FC = () => {
   const queryClient = useQueryClient();
+  const editLock = useEditLock('history');
   const { toast } = useToast();
   const { data, isLoading, error } = useQuery<HistoryItem[], Error>({ 
     queryKey: ['history'], 
@@ -133,9 +135,10 @@ const HistoryAdmin: React.FC = () => {
 
   const createUpdate = useMutation<any, Error, any>({
     mutationFn: postHistory,
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['history'] });
       toast({ title: 'Erfolg', description: 'Historie gespeichert' });
+      await editLock.release();
       setOpen(false);
       setEditing(null);
       setForm({});
@@ -156,7 +159,15 @@ const HistoryAdmin: React.FC = () => {
     setOpen(true);
   };
 
-  const startEdit = (item: HistoryItem) => {
+  const startEdit = async (item: HistoryItem) => {
+    try {
+      await editLock.acquire(item.id);
+    } catch (err) {
+      if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
+      void editLock.release();
+      toast({ title: 'Fehler', description: 'Bearbeitung konnte nicht gestartet werden', variant: 'destructive' });
+      return;
+    }
     setEditing(item);
     setForm({ ...item });
     setOpen(true);
@@ -259,7 +270,7 @@ const HistoryAdmin: React.FC = () => {
             </div>
           )}
 
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(value) => { if (!value) void editLock.release(); setOpen(value); }}>
             <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh]">
                 <DialogHeader>
                   <DialogTitle>{editing ? 'Geschichte-Eintrag bearbeiten' : 'Neuer Geschichte-Eintrag'}</DialogTitle>

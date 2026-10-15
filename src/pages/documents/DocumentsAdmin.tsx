@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { EditLockError, useEditLock } from '@/lib/editLock';
 import Navbar from '@/components/ui/navbar';
 import { useQuery } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -38,6 +39,7 @@ const fetchDocuments = async (category?: string, search?: string): Promise<Docum
 };
 
 const DocumentsAdmin: React.FC = () => {
+  const editLock = useEditLock('documents');
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<DocumentItem | null>(null);
@@ -53,7 +55,8 @@ const DocumentsAdmin: React.FC = () => {
     item: null
   });
 
-  const handleSaveSuccess = () => {
+  const handleSaveSuccess = async () => {
+    await editLock.release();
     setOpen(false);
     setEditing(null);
   };
@@ -109,11 +112,14 @@ const DocumentsAdmin: React.FC = () => {
 
   const startEdit = async (item: DocumentItem) => {
     try {
+      await editLock.acquire(item.id);
       const full = await fetchDocumentById(item.id);
       setEditing(full);
       setForm({ ...full });
       setOpen(true);
     } catch (err) {
+      if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
+      void editLock.release();
       toast({ title: 'Fehler', description: 'Konnte Dokument nicht laden' });
     }
   };
@@ -139,6 +145,7 @@ const DocumentsAdmin: React.FC = () => {
   };
 
   const handleCancelWizard = () => {
+    void editLock.release();
     setOpen(false);
     setEditing(null);
     resetForm();
@@ -201,7 +208,7 @@ const DocumentsAdmin: React.FC = () => {
 
           <DocumentWizard
             open={open}
-            onOpenChange={handleCloseWizard}
+            onOpenChange={(value) => { if (!value) void editLock.release(); handleCloseWizard(value); }}
             editing={editing}
             form={form}
             onFormChange={(updates) => setForm({ ...form, ...updates })}

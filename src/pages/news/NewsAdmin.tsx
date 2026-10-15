@@ -16,6 +16,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { httpUtils } from '@/lib/auth-utils';
 import AuditMeta from '@/components/AuditMeta';
 import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
+import { EditLockError, useEditLock } from '@/lib/editLock';
 
 const API = 'https://sc-laufenburg.de/api/news.php';
 
@@ -49,6 +50,7 @@ const postNews = async (payload: any) => {
 
 const NewsAdmin: React.FC = () => {
   const queryClient = useQueryClient();
+  const editLock = useEditLock('news');
   const { toast } = useToast();
   const { data, isLoading, error } = useQuery<NewsItem[], Error>({ queryKey: ['news'], queryFn: fetchNews });
   const [open, setOpen] = useState(false);
@@ -151,9 +153,10 @@ const NewsAdmin: React.FC = () => {
 
   const createUpdate = useMutation<any, Error, any>({
     mutationFn: postNews,
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['news'] });
       toast({ title: 'Erfolg', description: 'News gespeichert' });
+      await editLock.release();
       setOpen(false);
       setEditing(null);
       setForm({});
@@ -193,6 +196,7 @@ const NewsAdmin: React.FC = () => {
 
   const startEdit = async (item: NewsItem) => {
     try {
+      await editLock.acquire(item.id);
       const full = await fetchNewsBySlug(item.slug);
       setEditing(full);
       const today = new Date().toISOString().slice(0, 10);
@@ -205,6 +209,11 @@ const NewsAdmin: React.FC = () => {
       }
       setOpen(true);
     } catch (err) {
+      if (err instanceof EditLockError) {
+        toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' });
+        return;
+      }
+      void editLock.release();
       toast({ title: 'Fehler', description: 'Konnte News nicht laden' });
     }
   };
@@ -314,7 +323,7 @@ const NewsAdmin: React.FC = () => {
             </div>
           )}
 
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(value) => { if (!value) void editLock.release(); setOpen(value); }}>
             <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh]">
                 <DialogHeader>
                   <DialogTitle>{editing ? 'Nachricht bearbeiten' : 'Neue Nachricht'}</DialogTitle>
