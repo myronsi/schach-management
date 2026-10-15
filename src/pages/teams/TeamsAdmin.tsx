@@ -14,6 +14,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { httpUtils } from '@/lib/auth-utils';
 import AuditMeta from '@/components/AuditMeta';
+import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
 
 const API = 'https://sc-laufenburg.de/api/teams.php';
 
@@ -59,7 +60,7 @@ const postTeam = async (payload: any) => {
   const res = await httpUtils.post(API, payload);
   const data = await res.json();
   if (!res.ok || data.success === false) {
-    throw new Error(data.message || 'Failed to save');
+    throw markConflict(new Error(data.message || 'Failed to save'), data.conflict === true || res.status === 409);
   }
   return data;
 };
@@ -188,12 +189,16 @@ const TeamsAdmin: React.FC = () => {
       setEditing(null);
       setForm({});
     },
-    onError: () => {
-      toast({ 
-        title: 'Fehler', 
-        description: 'Konnte nicht speichern',
-        variant: 'destructive'
-      });
+    onError: (error: Error) => {
+      if (isConflictError(error)) {
+        toast({ title: 'Änderungskonflikt', description: conflictDescription(error), variant: 'destructive' });
+      } else {
+        toast({
+          title: 'Fehler',
+          description: 'Konnte nicht speichern',
+          variant: 'destructive'
+        });
+      }
     }
   });
 
@@ -204,12 +209,16 @@ const TeamsAdmin: React.FC = () => {
       toast({ title: 'Erfolg', description: 'Beschreibung gespeichert' });
       setDescriptionOpen(false);
     },
-    onError: () => {
-      toast({ 
-        title: 'Fehler', 
-        description: 'Konnte Beschreibung nicht speichern',
-        variant: 'destructive'
-      });
+    onError: (error: Error) => {
+      if (isConflictError(error)) {
+        toast({ title: 'Änderungskonflikt', description: conflictDescription(error), variant: 'destructive' });
+      } else {
+        toast({
+          title: 'Fehler',
+          description: 'Konnte Beschreibung nicht speichern',
+          variant: 'destructive'
+        });
+      }
     }
   });
 
@@ -320,7 +329,9 @@ const TeamsAdmin: React.FC = () => {
             queryClient.invalidateQueries({ queryKey: ['teams'] });
             showAlert('Erfolg', 'Team wurde erfolgreich gelöscht', 'success');
           } else {
-            showAlert('Fehler', 'Fehler beim Löschen', 'error');
+            const data = await res.json().catch(() => ({}));
+            const conflict = isConflictError({ message: data.message, conflict: data.conflict }) || res.status === 409;
+            showAlert(conflict ? 'Änderungskonflikt' : 'Fehler', conflict ? conflictDescription(new Error(data.message || 'Dieser Eintrag wurde zwischenzeitlich geändert. Bitte neu laden.')) : 'Fehler beim Löschen', 'error');
           }
         } catch (err) {
           showAlert('Fehler', 'Netzwerkfehler', 'error');

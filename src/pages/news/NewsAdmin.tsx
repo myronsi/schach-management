@@ -15,6 +15,7 @@ import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { httpUtils } from '@/lib/auth-utils';
 import AuditMeta from '@/components/AuditMeta';
+import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
 
 const API = 'https://sc-laufenburg.de/api/news.php';
 
@@ -41,7 +42,7 @@ const postNews = async (payload: any) => {
   const res = await httpUtils.post(API, payload);
   const data = await res.json();
   if (!res.ok || data.success === false) {
-    throw new Error(data.message || 'Failed to save');
+    throw markConflict(new Error(data.message || 'Failed to save'), data.conflict === true || res.status === 409);
   }
   return data;
 };
@@ -158,7 +159,13 @@ const NewsAdmin: React.FC = () => {
       setForm({});
     },
     onError: (error: Error) => {
-      if (error.message === 'Slug already exists') {
+      if (isConflictError(error)) {
+        toast({
+          title: 'Änderungskonflikt',
+          description: conflictDescription(error),
+          variant: 'destructive'
+        });
+      } else if (error.message === 'Slug already exists') {
         toast({ 
           title: 'Fehler', 
           description: 'Dieser Slug existiert bereits. Bitte wählen Sie einen anderen Slug.',
@@ -227,7 +234,9 @@ const NewsAdmin: React.FC = () => {
             queryClient.invalidateQueries({ queryKey: ['news'] });
             showAlert('Erfolg', 'Nachricht wurde erfolgreich gelöscht', 'success');
           } else {
-            showAlert('Fehler', 'Fehler beim Löschen', 'error');
+            const data = await res.json().catch(() => ({}));
+            const conflict = isConflictError({ message: data.message, conflict: data.conflict }) || res.status === 409;
+            showAlert(conflict ? 'Änderungskonflikt' : 'Fehler', conflict ? conflictDescription(new Error(data.message || 'Dieser Eintrag wurde zwischenzeitlich geändert. Bitte neu laden.')) : 'Fehler beim Löschen', 'error');
           }
         } catch (err) {
           showAlert('Fehler', 'Netzwerkfehler', 'error');
