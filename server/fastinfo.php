@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/auth-middleware.php';
+require_once __DIR__ . '/audit.php';
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
@@ -43,7 +44,7 @@ try {
 
     if ($method === 'GET') {
         if ($infoId) {
-            $stmt = $pdo->prepare('SELECT id, icon, label, targetValue, delay FROM fastinfo WHERE id = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT id, icon, label, targetValue, delay, updated_at, updated_by FROM fastinfo WHERE id = ? LIMIT 1');
             $stmt->execute([$infoId]);
             $row = $stmt->fetch();
             if (!$row) {
@@ -55,7 +56,7 @@ try {
             exit;
         }
 
-        $stmt = $pdo->query('SELECT id, icon, label, targetValue, delay FROM fastinfo ORDER BY delay ASC LIMIT 100');
+        $stmt = $pdo->query('SELECT id, icon, label, targetValue, delay, updated_at, updated_by FROM fastinfo ORDER BY delay ASC LIMIT 100');
         $rows = $stmt->fetchAll();
         echo json_encode($rows);
         exit;
@@ -84,13 +85,17 @@ try {
             $exists = (bool)$check->fetch();
 
             if ($exists) {
-                $stmt = $pdo->prepare('UPDATE fastinfo SET icon = ?, label = ?, targetValue = ?, delay = ? WHERE id = ?');
-                $stmt->execute([$icon, $label, $targetValue, $delay, $id]);
+                auditCheckConflict($pdo, 'fastinfo', $id, $data['expected_updated_at'] ?? null);
+                $before = auditFetchRow($pdo, 'fastinfo', $id);
+                $stmt = $pdo->prepare('UPDATE fastinfo SET icon = ?, label = ?, targetValue = ?, delay = ?, updated_by = ? WHERE id = ?');
+                $stmt->execute([$icon, $label, $targetValue, $delay, $user['username'], $id]);
+                auditLog($pdo, $user, 'fastinfo', $id, 'update', $before, auditFetchRow($pdo, 'fastinfo', $id));
                 echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
                 exit;
             } else {
                 $stmt = $pdo->prepare('INSERT INTO fastinfo (id, icon, label, targetValue, delay) VALUES (?, ?, ?, ?, ?)');
                 $stmt->execute([$id, $icon, $label, $targetValue, $delay]);
+                auditLog($pdo, $user, 'fastinfo', $id, 'create', null, auditFetchRow($pdo, 'fastinfo', $id));
                 echo json_encode(['success' => true, 'message' => 'Created', 'id' => $id]);
                 exit;
             }
@@ -98,6 +103,7 @@ try {
             $stmt = $pdo->prepare('INSERT INTO fastinfo (icon, label, targetValue, delay) VALUES (?, ?, ?, ?)');
             $stmt->execute([$icon, $label, $targetValue, $delay]);
             $newId = (int)$pdo->lastInsertId();
+            auditLog($pdo, $user, 'fastinfo', $newId, 'create', null, auditFetchRow($pdo, 'fastinfo', $newId));
             echo json_encode(['success' => true, 'message' => 'Created', 'id' => $newId]);
             exit;
         }
@@ -116,8 +122,11 @@ try {
             exit;
         }
 
+        auditCheckConflict($pdo, 'fastinfo', $id, $data['expected_updated_at'] ?? null);
+        $before = auditFetchRow($pdo, 'fastinfo', $id);
         $stmt = $pdo->prepare('DELETE FROM fastinfo WHERE id = ?');
         $stmt->execute([$id]);
+        if ($stmt->rowCount()) auditLog($pdo, $user, 'fastinfo', $id, 'delete', $before, null);
         echo json_encode(['success' => true, 'message' => 'Deleted', 'id' => $id]);
         exit;
     }

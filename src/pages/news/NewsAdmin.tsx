@@ -26,6 +26,8 @@ interface NewsItem {
   date: string;
   image?: string;
   link?: string;
+  updated_at?: string;
+  updated_by?: string;
 }
 
 const fetchNews = async (): Promise<NewsItem[]> => {
@@ -202,6 +204,7 @@ const NewsAdmin: React.FC = () => {
   const save = () => {
     const payload = { ...form } as any;
     if (form.id) payload.id = form.id;
+    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
     const nowFull = new Date().toISOString().replace('T', ' ').split('.')[0];
     if (!payload.date) {
       payload.date = nowFull;
@@ -217,7 +220,7 @@ const NewsAdmin: React.FC = () => {
       `Möchten Sie die Nachricht "${item.title}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.delete(API, { id: item.id });
+          const res = await httpUtils.delete(API, { id: item.id, expected_updated_at: item.updated_at });
           
           if (res.ok) {
             queryClient.invalidateQueries({ queryKey: ['news'] });

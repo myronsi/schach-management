@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/auth-middleware.php';
+require_once __DIR__ . '/audit.php';
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
@@ -54,7 +55,7 @@ try {
     switch ($action) {
         case 'list':
         case 'get':
-            $stmt = $pdo->query('SELECT id, title, date, time, location, description, type, is_recurring FROM events ORDER BY date ASC');
+            $stmt = $pdo->query('SELECT id, title, date, time, location, description, type, is_recurring, updated_at, updated_by FROM events ORDER BY date ASC');
             $events = $stmt->fetchAll();
             echo json_encode(['events' => $events]);
             break;
@@ -62,7 +63,7 @@ try {
         case 'upcoming':
             $currentDate = date('Y-m-d');
             $stmt = $pdo->prepare(
-                "SELECT id, title, date, time, location, description, type, is_recurring FROM events
+                "SELECT id, title, date, time, location, description, type, is_recurring, updated_at, updated_by FROM events
                  WHERE (date NOT LIKE '%:%' AND date >= ?) OR (date LIKE '%:%' AND SUBSTRING_INDEX(date, ':', -1) >= ?)
                  ORDER BY date ASC"
             );
@@ -74,7 +75,7 @@ try {
         case 'past':
             $currentDate = date('Y-m-d');
             $stmt = $pdo->prepare(
-                "SELECT id, title, date, time, location, description, type, is_recurring FROM events
+                "SELECT id, title, date, time, location, description, type, is_recurring, updated_at, updated_by FROM events
                  WHERE (date NOT LIKE '%:%' AND date < ?) OR (date LIKE '%:%' AND SUBSTRING_INDEX(date, ':', -1) < ?)
                  ORDER BY date DESC"
             );
@@ -103,7 +104,7 @@ try {
                         $expandedEnd = date('Y-m-d', strtotime($lastDay . ' +8 days'));
 
                         $stmt = $pdo->prepare(
-                                "SELECT id, title, date, time, location, description, type, is_recurring FROM events
+                                "SELECT id, title, date, time, location, description, type, is_recurring, updated_at, updated_by FROM events
                                  WHERE (date NOT LIKE '%:%' AND date >= ? AND date <= ?) 
                                      OR (date LIKE '%:%' AND SUBSTRING_INDEX(date, ':', 1) <= ? AND SUBSTRING_INDEX(date, ':', -1) >= ?) 
                                  ORDER BY date ASC"
@@ -119,11 +120,13 @@ try {
 
             $stmt = $pdo->prepare('INSERT INTO events (id, title, date, time, location, description, type, is_recurring) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 
+            $createdIds = [];
             if (isset($input[0]) && is_array($input)) {
                 foreach ($input as $event) {
+                    $newId = $nextId++;
                     $dateVal = $event['date'] ?? '';
                     $stmt->execute([
-                        $nextId++,
+                        $newId,
                         $event['title'] ?? '',
                         $dateVal ?? '',
                         $event['time'] ?? null,
@@ -132,11 +135,14 @@ try {
                         $event['type'] ?? null,
                         $event['is_recurring'] ?? 0
                     ]);
+                    $createdIds[] = $newId;
+                    auditLog($pdo, $user, 'events', $newId, 'create', null, auditFetchRow($pdo, 'events', $newId));
                 }
             } else {
+                $newId = $nextId++;
                 $dateVal = $input['date'] ?? '';
                 $stmt->execute([
-                    $nextId++,
+                    $newId,
                     $input['title'] ?? '',
                     $dateVal ?? '',
                     $input['time'] ?? null,
@@ -145,9 +151,11 @@ try {
                     $input['type'] ?? null,
                     $input['is_recurring'] ?? 0
                 ]);
+                $createdIds[] = $newId;
+                auditLog($pdo, $user, 'events', $newId, 'create', null, auditFetchRow($pdo, 'events', $newId));
             }
 
-            echo json_encode(['success' => true, 'message' => 'Event(s) created']);
+            echo json_encode(['success' => true, 'message' => 'Event(s) created', 'affected_ids' => $createdIds]);
             break;
             
         case 'edit':
@@ -174,10 +182,15 @@ try {
             }
             
             if (!empty($fields)) {
+                auditCheckConflict($pdo, 'events', $eventId, $input['expected_updated_at'] ?? null);
+                $before = auditFetchRow($pdo, 'events', $eventId);
+                $fields[] = 'updated_by = ?';
+                $values[] = $user['username'];
                 $values[] = $eventId;
                 $sql = 'UPDATE events SET ' . implode(', ', $fields) . ' WHERE id = ?';
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute($values);
+                auditLog($pdo, $user, 'events', $eventId, 'update', $before, auditFetchRow($pdo, 'events', $eventId));
             }
             
             echo json_encode(['success' => true, 'message' => 'Event updated']);
@@ -212,6 +225,18 @@ try {
                 }
 
                 if ($endDate) {
+                    $beforeStmt = $pdo->prepare('SELECT * FROM events WHERE title = ? AND date >= ? AND date <= ?');
+                    $beforeStmt->execute([$title, $startDate, $endDate]);
+                } else {
+                    $beforeStmt = $pdo->prepare('SELECT * FROM events WHERE title = ? AND date >= ?');
+                    $beforeStmt->execute([$title, $startDate]);
+                }
+                $beforeRows = $beforeStmt->fetchAll();
+                $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
+
+                $fields[] = 'updated_by = ?';
+                $values[] = $user['username'];
+                if ($endDate) {
                     $sql = 'UPDATE events SET ' . implode(', ', $fields) . ' WHERE title = ? AND date >= ? AND date <= ?';
                     $stmt = $pdo->prepare($sql);
                     $execParams = array_merge($values, [$title, $startDate, $endDate]);
@@ -223,7 +248,12 @@ try {
                     $stmt->execute($execParams);
                 }
                 $affected = $stmt->rowCount();
-                echo json_encode(['success' => true, 'message' => "Updated $affected event(s)"]);
+                $afterRows = [];
+                foreach ($affectedIds as $affectedId) {
+                    $afterRows[] = auditFetchRow($pdo, 'events', $affectedId);
+                }
+                auditLog($pdo, $user, 'events', $affectedIds, 'bulk_update', $beforeRows, $afterRows);
+                echo json_encode(['success' => true, 'message' => "Updated $affected event(s)", 'affected_ids' => $affectedIds]);
             } else {
                 echo json_encode(['success' => true, 'message' => 'No updates provided']);
             }
@@ -233,9 +263,12 @@ try {
             $eventId = $input['id'] ?? '';
             
             if ($eventId) {
+                auditCheckConflict($pdo, 'events', $eventId, $input['expected_updated_at'] ?? null);
+                $before = auditFetchRow($pdo, 'events', $eventId);
                 $stmt = $pdo->prepare('DELETE FROM events WHERE id = ?');
                 $stmt->execute([$eventId]);
                 $deleted = $stmt->rowCount();
+                if ($deleted) auditLog($pdo, $user, 'events', $eventId, 'delete', $before, null);
                 echo json_encode(['success' => true, 'deleted' => $deleted, 'message' => 'Deleted event']);
                 break;
             }
@@ -253,9 +286,14 @@ try {
                         exit;
                     }
                     
+                    $beforeStmt = $pdo->prepare('SELECT * FROM events WHERE title = ? AND date >= ?');
+                    $beforeStmt->execute([$title, $currentDate]);
+                    $beforeRows = $beforeStmt->fetchAll();
+                    $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
                     $stmt = $pdo->prepare('DELETE FROM events WHERE title = ? AND date >= ?');
                     $stmt->execute([$title, $currentDate]);
                     $deleted = $stmt->rowCount();
+                    if ($deleted) auditLog($pdo, $user, 'events', $affectedIds, 'bulk_delete', $beforeRows, null);
                     break;
                     
                 case 'specificDayTitle':
@@ -268,9 +306,14 @@ try {
                         exit;
                     }
                     
+                    $beforeStmt = $pdo->prepare('SELECT * FROM events WHERE title = ? AND date = ?');
+                    $beforeStmt->execute([$title, $date]);
+                    $beforeRows = $beforeStmt->fetchAll();
+                    $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
                     $stmt = $pdo->prepare('DELETE FROM events WHERE title = ? AND date = ?');
                     $stmt->execute([$title, $date]);
                     $deleted = $stmt->rowCount();
+                    if ($deleted) auditLog($pdo, $user, 'events', $affectedIds, 'bulk_delete', $beforeRows, null);
                     break;
                     
                 case 'allOnDay':
@@ -282,9 +325,14 @@ try {
                         exit;
                     }
                     
+                    $beforeStmt = $pdo->prepare('SELECT * FROM events WHERE date = ?');
+                    $beforeStmt->execute([$date]);
+                    $beforeRows = $beforeStmt->fetchAll();
+                    $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
                     $stmt = $pdo->prepare('DELETE FROM events WHERE date = ?');
                     $stmt->execute([$date]);
                     $deleted = $stmt->rowCount();
+                    if ($deleted) auditLog($pdo, $user, 'events', $affectedIds, 'bulk_delete', $beforeRows, null);
                     break;
 
                 case 'range':
@@ -300,9 +348,14 @@ try {
                         exit;
                     }
 
+                    $beforeStmt = $pdo->prepare('SELECT * FROM events WHERE date >= ? AND date <= ?');
+                    $beforeStmt->execute([$startDate, $endDate]);
+                    $beforeRows = $beforeStmt->fetchAll();
+                    $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
                     $stmt = $pdo->prepare('DELETE FROM events WHERE date >= ? AND date <= ?');
                     $stmt->execute([$startDate, $endDate]);
                     $deleted = $stmt->rowCount();
+                    if ($deleted) auditLog($pdo, $user, 'events', $affectedIds, 'bulk_delete', $beforeRows, null);
                     break;
                     
                 default:
@@ -311,7 +364,7 @@ try {
                     exit;
             }
             
-            echo json_encode(['success' => true, 'deleted' => $deleted, 'message' => "Deleted {$deleted} event(s)"]);
+            echo json_encode(['success' => true, 'deleted' => $deleted, 'affected_ids' => $affectedIds ?? [], 'message' => "Deleted {$deleted} event(s)"]);
             break;
             
         default:

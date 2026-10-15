@@ -113,13 +113,13 @@ const EventsList: React.FC = () => {
     setFilteredEvents(filterEvents(events, currentFilter));
   }, [events, currentFilter]);
 
-  const handleDelete = async (id: string, title: string) => {
+  const handleDelete = async (id: string, title: string, expected_updated_at?: string) => {
     showConfirm(
       'Ereignis löschen',
       `Möchten Sie das Ereignis "${title}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.post(`${API}?action=delete`, { id });
+          const res = await httpUtils.post(`${API}?action=delete`, { id, expected_updated_at });
           
           if (res.ok) {
             await loadEvents();

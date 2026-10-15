@@ -8,6 +8,7 @@ export interface DocumentItem {
   file_size: number | null;
   upload_date: string;
   updated_at: string;
+  updated_by?: string;
   is_active: boolean;
 }
 

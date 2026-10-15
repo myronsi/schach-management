@@ -23,9 +23,13 @@ export const postMedia = async (payload: any) => {
   return data;
 };
 
-export const deleteMedia = async (id: number) => {
-  const res = await httpUtils.delete(API, { id });
-  return res.ok;
+export const deleteMedia = async (id: number, expected_updated_at?: string) => {
+  const res = await httpUtils.delete(API, { id, expected_updated_at });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || 'Failed to delete media');
+  }
+  return true;
 };
 
 export const uploadFiles = async (title: string, files: FileList) => {

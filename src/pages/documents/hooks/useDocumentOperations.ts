@@ -69,6 +69,7 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
   const save = () => {
     const payload = { ...form } as any;
     if (form.id) payload.id = form.id;
+    if (form.id && form.updated_at) payload.expected_updated_at = form.updated_at;
     
     if (payload.file_size) payload.file_size = Number(payload.file_size);
     

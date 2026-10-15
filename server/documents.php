@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/auth-middleware.php';
+require_once __DIR__ . '/audit.php';
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
@@ -22,6 +23,15 @@ $uploadBaseDir = __DIR__ . '/../docs/';
 
 if (!is_dir($uploadBaseDir)) {
     mkdir($uploadBaseDir, 0755, true);
+}
+
+function removeDocumentFile(?string $filepath, string $uploadBaseDir): bool {
+    if (!$filepath || !str_starts_with($filepath, '/docs/')) return false;
+    $relative = ltrim(substr($filepath, strlen('/docs/')), '/');
+    if ($relative === '' || str_contains($relative, '..')) return false;
+    $fullPath = rtrim($uploadBaseDir, '/') . '/' . $relative;
+    if (!is_file($fullPath)) return false;
+    return @unlink($fullPath);
 }
 
 function listFilesInDirectory($directory, $relativePath = '') {
@@ -122,7 +132,7 @@ try {
         }
         
         if ($docId) {
-            $stmt = $pdo->prepare('SELECT id, name, filename, filepath, category, description, file_size, upload_date, updated_at, is_active FROM documents WHERE id = ? LIMIT 1');
+            $stmt = $pdo->prepare('SELECT id, name, filename, filepath, category, description, file_size, upload_date, updated_at, updated_by, is_active FROM documents WHERE id = ? LIMIT 1');
             $stmt->execute([$docId]);
             $row = $stmt->fetch();
             if (!$row) {
@@ -138,7 +148,7 @@ try {
         $activeOnly = isset($input['active_only']) ? filter_var($input['active_only'], FILTER_VALIDATE_BOOLEAN) : false;
         $search = isset($input['search']) ? trim($input['search']) : null;
 
-        $sql = 'SELECT id, name, filename, filepath, category, description, file_size, upload_date, updated_at, is_active FROM documents WHERE 1=1';
+        $sql = 'SELECT id, name, filename, filepath, category, description, file_size, upload_date, updated_at, updated_by, is_active FROM documents WHERE 1=1';
         $params = [];
 
         if ($activeOnly) {
@@ -302,10 +312,15 @@ try {
                 exit;
             }
 
+            auditCheckConflict($pdo, 'documents', $id, $data['expected_updated_at'] ?? null);
+            $before = auditFetchRow($pdo, 'documents', $id);
+            $updateFields[] = 'updated_by = ?';
+            $updateParams[] = $user['username'];
             $updateParams[] = $id;
             $sql = 'UPDATE documents SET ' . implode(', ', $updateFields) . ' WHERE id = ?';
             $stmt = $pdo->prepare($sql);
             $stmt->execute($updateParams);
+            auditLog($pdo, $user, 'documents', $id, 'update', $before, auditFetchRow($pdo, 'documents', $id));
 
             echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
             exit;
@@ -332,11 +347,13 @@ try {
         if ($id) {
             $stmt = $pdo->prepare('INSERT INTO documents (id, name, filename, filepath, category, description, file_size, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([$id, $name, $filename, $filepath, $category, $description, $fileSize, $isActive ? 1 : 0]);
+            auditLog($pdo, $user, 'documents', $id, 'create', null, auditFetchRow($pdo, 'documents', $id));
             echo json_encode(['success' => true, 'message' => 'Created', 'id' => $id]);
         } else {
             $stmt = $pdo->prepare('INSERT INTO documents (name, filename, filepath, category, description, file_size, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([$name, $filename, $filepath, $category, $description, $fileSize, $isActive ? 1 : 0]);
             $newId = (int)$pdo->lastInsertId();
+            auditLog($pdo, $user, 'documents', $newId, 'create', null, auditFetchRow($pdo, 'documents', $newId));
             echo json_encode(['success' => true, 'message' => 'Created', 'id' => $newId]);
         }
         exit;
@@ -400,10 +417,15 @@ try {
             exit;
         }
 
+        auditCheckConflict($pdo, 'documents', $id, $data['expected_updated_at'] ?? null);
+        $before = auditFetchRow($pdo, 'documents', $id);
+        $updateFields[] = 'updated_by = ?';
+        $updateParams[] = $user['username'];
         $updateParams[] = $id;
         $sql = 'UPDATE documents SET ' . implode(', ', $updateFields) . ' WHERE id = ?';
         $stmt = $pdo->prepare($sql);
         $stmt->execute($updateParams);
+        auditLog($pdo, $user, 'documents', $id, 'update', $before, auditFetchRow($pdo, 'documents', $id));
 
         echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
         exit;
@@ -423,17 +445,41 @@ try {
             exit;
         }
 
+        $before = auditFetchRow($pdo, 'documents', $id);
+        if (!$before) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Document not found']);
+            exit;
+        }
+        auditCheckConflict($pdo, 'documents', $id, $data['expected_updated_at'] ?? null);
+
         if ($hardDelete) {
             $stmt = $pdo->prepare('DELETE FROM documents WHERE id = ?');
             $stmt->execute([$id]);
-            echo json_encode(['success' => true, 'message' => 'Permanently deleted', 'id' => $id]);
+            if ($stmt->rowCount()) {
+                $fileRemoved = removeDocumentFile($before['filepath'] ?? null, $uploadBaseDir);
+                auditLog($pdo, $user, 'documents', $id, 'delete', [
+                    'document' => $before,
+                    'file_path' => $before['filepath'] ?? null,
+                    'file_removed' => $fileRemoved
+                ], null);
+            }
+            echo json_encode(['success' => true, 'message' => 'Permanently deleted', 'id' => $id, 'file_removed' => $fileRemoved ?? false]);
         } else {
-            $stmt = $pdo->prepare('UPDATE documents SET is_active = 0 WHERE id = ?');
-            $stmt->execute([$id]);
+            $stmt = $pdo->prepare('UPDATE documents SET is_active = 0, updated_by = ? WHERE id = ?');
+            $stmt->execute([$user['username'], $id]);
+            if ($stmt->rowCount()) {
+                $after = auditFetchRow($pdo, 'documents', $id);
+                auditLog($pdo, $user, 'documents', $id, 'deactivate', [
+                    'document' => $before,
+                    'file_path' => $before['filepath'] ?? null
+                ], $after);
+            }
             echo json_encode(['success' => true, 'message' => 'Document deactivated', 'id' => $id]);
         }
         exit;
     }
+
 
     http_response_code(405);
     echo json_encode(['success' => false, 'message' => 'Method not allowed']);

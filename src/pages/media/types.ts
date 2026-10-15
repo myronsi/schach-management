@@ -10,6 +10,8 @@ export interface MediaItem {
   title: string;
   description?: string;
   children: string | ChildItem[];
+  updated_at?: string;
+  updated_by?: string;
 }
 
 export interface AlertDialogState {

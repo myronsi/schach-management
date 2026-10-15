@@ -21,6 +21,8 @@ interface FastInfoItem {
   label: string;
   targetValue: number;
   delay: number;
+  updated_at?: string;
+  updated_by?: string;
 }
 
 const fetchFastInfo = async (): Promise<FastInfoItem[]> => {
@@ -157,6 +159,7 @@ const FastInfoAdmin: React.FC = () => {
   const save = () => {
     const payload = { ...form } as any;
     if (form.id) payload.id = form.id;
+    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
     
     if (payload.targetValue) payload.targetValue = Number(payload.targetValue);
     if (payload.delay !== undefined) payload.delay = Number(payload.delay);
@@ -170,7 +173,7 @@ const FastInfoAdmin: React.FC = () => {
       `Möchten Sie "${item.label}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.delete(API, { id: item.id });
+          const res = await httpUtils.delete(API, { id: item.id, expected_updated_at: item.updated_at });
           
           if (res.ok) {
             queryClient.invalidateQueries({ queryKey: ['fastinfo'] });

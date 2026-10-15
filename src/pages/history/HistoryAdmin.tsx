@@ -19,6 +19,8 @@ interface HistoryItem {
   id: string;
   date: string;
   text: string;
+  updated_at?: string;
+  updated_by?: string;
 }
 
 const fetchHistory = async (): Promise<HistoryItem[]> => {
@@ -159,7 +161,9 @@ const HistoryAdmin: React.FC = () => {
   };
 
   const save = () => {
-    createUpdate.mutate(form);
+    const payload = { ...form } as any;
+    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
+    createUpdate.mutate(payload);
   };
 
   const handleDelete = async (item: HistoryItem) => {
@@ -168,7 +172,7 @@ const HistoryAdmin: React.FC = () => {
       `Möchten Sie den Eintrag "${item.date}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.delete(API, { id: item.id });
+          const res = await httpUtils.delete(API, { id: item.id, expected_updated_at: item.updated_at });
           
           if (res.ok) {
             queryClient.invalidateQueries({ queryKey: ['history'] });
