@@ -1,37 +1,10 @@
 <?php
 
-$envEvents = [];
-$envFile = __DIR__ . '/.env';
-if (file_exists($envFile)) $envEvents = parse_ini_file($envFile);
-
-$hostEvents = $envEvents['host2'] ?? '';
-$userEvents = $envEvents['user2'] ?? '';
-$passwordEvents = $envEvents['password2'] ?? '';
-$databaseEvents = $envEvents['database2'] ?? '';
-$portEvents = isset($envEvents['port2']) ? (int)$envEvents['port2'] : 3306;
-
-$envUsers = [];
-$envFileUsers = __DIR__ . '/.env.auth';
-if (file_exists($envFileUsers)) $envUsers = parse_ini_file($envFileUsers);
-
-$hostUsers = $envUsers['host'] ?? '';
-$userUsers = $envUsers['user'] ?? '';
-$passwordUsers = $envUsers['password'] ?? '';
-$databaseUsers = $envUsers['database'] ?? '';
-$portUsers = isset($envUsers['port']) ? (int)$envUsers['port'] : 3306;
+require_once __DIR__ . '/cron-guard.php';
 
 try {
-    $dsn = "mysql:host=$hostEvents;dbname=$databaseEvents;port=$portEvents;charset=utf8mb4";
-    $db = new PDO($dsn, $userEvents, $passwordEvents, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
-
-    $dsnUsers = "mysql:host=$hostUsers;dbname=$databaseUsers;port=$portUsers;charset=utf8mb4";
-    $dbUsers = new PDO($dsnUsers, $userUsers, $passwordUsers, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
+    $db = contentDb();
+    $dbUsers = authDb();
 
     $tomorrow = date("Y-m-d", strtotime("+1 day"));
 
@@ -53,6 +26,19 @@ try {
 
     $queuedCount = 0;
 
+    $formatDate = function($dateStr) {
+        $months = [
+            1 => 'Jan.', 2 => 'Feb.', 3 => 'Mär.', 4 => 'Apr.',
+            5 => 'Mai', 6 => 'Jun.', 7 => 'Jul.', 8 => 'Aug.',
+            9 => 'Sep.', 10 => 'Okt.', 11 => 'Nov.', 12 => 'Dez.'
+        ];
+        $timestamp = strtotime($dateStr);
+        $day = date('d', $timestamp);
+        $month = (int)date('m', $timestamp);
+        $year = date('Y', $timestamp);
+        return "$day. {$months[$month]} $year";
+    };
+
     foreach ($events as $event) {
         $eventDate = $event['date'];
         $startDate = $eventDate;
@@ -71,26 +57,13 @@ try {
                 continue;
             }
 
-            $formatDate = function($dateStr) {
-                $months = [
-                    1 => 'Jan.', 2 => 'Feb.', 3 => 'Mär.', 4 => 'Apr.',
-                    5 => 'Mai', 6 => 'Jun.', 7 => 'Jul.', 8 => 'Aug.',
-                    9 => 'Sep.', 10 => 'Okt.', 11 => 'Nov.', 12 => 'Dez.'
-                ];
-                $timestamp = strtotime($dateStr);
-                $day = date('d', $timestamp);
-                $month = (int)date('m', $timestamp);
-                $year = date('Y', $timestamp);
-                return "$day. {$months[$month]} $year";
-            };
-
             $firstName = !empty($user['first_name']) ? $user['first_name'] : '';
             $lastName = !empty($user['last_name']) ? $user['last_name'] : '';
             $greeting = "Hallo";
             if ($firstName && $lastName) {
-                $greeting = "Hallo $firstName $lastName";
+                $greeting = 'Hallo ' . e($firstName) . ' ' . e($lastName);
             } elseif ($firstName) {
-                $greeting = "Hallo $firstName";
+                $greeting = 'Hallo ' . e($firstName);
             }
 
             $subject = "Erinnerung: Ereignis «{$event['title']}» findet morgen statt!";
@@ -124,7 +97,7 @@ try {
                         
                         <div class='event-details'>
                             <div class='detail-row'>
-                                <span class='detail-label'>Titel:</span> {$event['title']}
+                                <span class='detail-label'>Titel:</span> " . e($event['title']) . "
                             </div>
                             <div class='detail-row'>
                                 <span class='detail-label'>Datum:</span> $formattedStartDate";
@@ -139,14 +112,14 @@ try {
                         if (!empty($event['time'])) {
                             $body .= "
                             <div class='detail-row'>
-                                <span class='detail-label'>Uhrzeit:</span> {$event['time']} Uhr
+                                <span class='detail-label'>Uhrzeit:</span> " . e($event['time']) . " Uhr
                             </div>";
                         }
                         
                         if (!empty($event['location'])) {
                             $body .= "
                             <div class='detail-row'>
-                                <span class='detail-label'>Ort:</span> {$event['location']}
+                                <span class='detail-label'>Ort:</span> " . e($event['location']) . "
                             </div>";
                         }
                         
@@ -154,7 +127,7 @@ try {
                             $body .= "
                             <div class='detail-row' style='margin-top: 20px;'>
                                 <span class='detail-label'>Beschreibung:</span>
-                                <div style='margin-top: 8px;'>" . nl2br(htmlspecialchars($event['description'])) . "</div>
+                                <div style='margin-top: 8px;'>" . nl2br(e($event['description'])) . "</div>
                             </div>";
                         }
                         
@@ -208,9 +181,8 @@ try {
     echo "Queue updated: $queuedCount emails queued for " . count($events) . " event(s) tomorrow ($tomorrow)\n";
 
 } catch (PDOException $e) {
+    error_log('queue_tomorrow_events.php: ' . $e->getMessage());
     http_response_code(500);
-    echo "Database error: " . $e->getMessage() . "\n";
+    echo "Database error\n";
     exit(1);
 }
-
-?>

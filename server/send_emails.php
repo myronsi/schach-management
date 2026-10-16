@@ -1,24 +1,14 @@
 <?php
 
-$env = [];
-$envFile = __DIR__ . '/.env';
-if (file_exists($envFile)) $env = parse_ini_file($envFile);
+require_once __DIR__ . '/cron-guard.php';
 
-$host = $env['host2'] ?? '';
-$user = $env['user2'] ?? '';
-$password = $env['password2'] ?? '';
-$database = $env['database2'] ?? '';
-$port = isset($env['port2']) ? (int)$env['port2'] : 3306;
+$env = contentEnv();
 $fromEmail = $env['from_email'] ?? 'no-reply@sc-laufenburg.de';
 
 try {
-    $dsn = "mysql:host=$host;dbname=$database;port=$port;charset=utf8mb4";
-    $db = new PDO($dsn, $user, $password, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
+    $db = contentDb();
 
-    $stmt = $db->query("SELECT * FROM email_queue WHERE sent = 0 ORDER BY created_at ASC LIMIT 50");
+    $stmt = $db->query("SELECT * FROM email_queue WHERE sent = 0 AND (failed IS NULL OR failed = 0) ORDER BY created_at ASC LIMIT 50");
     $emails = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($emails)) {
@@ -33,7 +23,7 @@ try {
         try {
             $isHtml = !empty($mail['is_html']) && $mail['is_html'] == 1;
             
-            $headers = "From: {$fromEmail}\r\n";
+            $headers = 'From: ' . preg_replace('/[\r\n]+/', '', $fromEmail) . "\r\n";
             if ($isHtml) {
                 $headers .= "MIME-Version: 1.0\r\n";
                 $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
@@ -43,7 +33,7 @@ try {
             
             $success = mail(
                 $mail['email'],
-                $mail['subject'],
+                encodeMailHeader((string)$mail['subject']),
                 $mail['body'],
                 $headers
             );
@@ -69,9 +59,8 @@ try {
     echo "Emails processed: $sentCount sent, $failedCount failed\n";
 
 } catch (PDOException $e) {
+    error_log('send_emails.php: ' . $e->getMessage());
     http_response_code(500);
-    echo "Database error: " . $e->getMessage() . "\n";
+    echo "Database error\n";
     exit(1);
 }
-
-?>

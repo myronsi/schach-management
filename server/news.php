@@ -3,189 +3,110 @@
 require_once __DIR__ . '/auth-middleware.php';
 require_once __DIR__ . '/audit.php';
 
-$origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
-header('Access-Control-Allow-Origin: ' . $origin);
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS, DELETE, PUT, PATCH');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token');
-header('Access-Control-Allow-Credentials: false');
-header('Content-Type: application/json; charset=utf-8');
+sendCorsHeaders(['GET', 'POST', 'DELETE']);
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
+const NEWS_LIST_COLUMNS = 'id, slug, title, description, date, image, updated_at, updated_by';
+
+$pdo = contentDb();
+$method = $_SERVER['REQUEST_METHOD'];
+$user = null;
+if ($method !== 'GET') {
+    $user = requireEditor();
+}
+
+if ($method === 'GET') {
+    $slug = $_GET['slug'] ?? null;
+    if (is_string($slug) && $slug !== '') {
+        $stmt = $pdo->prepare('SELECT id, slug, title, description, content, date, image, link, updated_at, updated_by FROM news WHERE slug = ? LIMIT 1');
+        $stmt->execute([$slug]);
+        $row = $stmt->fetch();
+        if (!$row) jsonError('Not found', 404);
+        jsonResponse($row);
+    }
+    $q = $_GET['q'] ?? '';
+    if (is_string($q) && trim($q) !== '') {
+        $like = '%' . addcslashes(trim($q), '%_\\') . '%';
+        $stmt = $pdo->prepare('SELECT ' . NEWS_LIST_COLUMNS . ' FROM news WHERE title LIKE ? OR description LIKE ? ORDER BY date DESC LIMIT 50');
+        $stmt->execute([$like, $like]);
+    } else {
+        $stmt = $pdo->query('SELECT ' . NEWS_LIST_COLUMNS . ' FROM news ORDER BY date DESC LIMIT 50');
+    }
+    echo json_encode($stmt->fetchAll(), JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-$env = [];
-$envFile = __DIR__ . '/.env';
-if (file_exists($envFile)) $env = parse_ini_file($envFile);
-
-$host = $env['host2'] ?? '';
-$user = $env['user2'] ?? '';
-$password = $env['password2'] ?? '';
-$database = $env['database2'] ?? '';
-$port = isset($env['port2']) ? (int)$env['port2'] : 3306;
-
-$input = $_GET;
-$slug = $input['slug'] ?? null;
-
-try {
-    $dsn = "mysql:host=$host;dbname=$database;port=$port;charset=utf8mb4";
-    $pdo = new PDO($dsn, $user, $password, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
-
-    $method = $_SERVER['REQUEST_METHOD'];
-
-    if ($method === 'POST' || $method === 'DELETE' || $method === 'PUT' || $method === 'PATCH') {
-        $user = requireAuthentication(['admin', 'chairman']);
-        error_log("Authenticated user '{$user['username']}' performing $method operation on news");
-    }
-
-    if ($method === 'GET') {
-        if ($slug) {
-            $stmt = $pdo->prepare('SELECT id, slug, title, description, content, date, image, link, updated_at, updated_by FROM news WHERE slug = ? LIMIT 1');
-            $stmt->execute([$slug]);
-            $row = $stmt->fetch();
-            if (!$row) {
-                http_response_code(404);
-                echo json_encode(['success' => false, 'message' => 'Not found']);
-                exit;
-            }
-            echo json_encode($row);
-            exit;
-        }
-        if (isset($input['q']) && trim($input['q']) !== '') {
-            $q = '%' . $input['q'] . '%';
-            $stmt = $pdo->prepare('SELECT id, slug, title, description, date, image, updated_at, updated_by FROM news WHERE title LIKE ? OR description LIKE ? ORDER BY date DESC LIMIT 50');
-            $stmt->execute([$q, $q]);
-            $rows = $stmt->fetchAll();
-            echo json_encode($rows);
-            exit;
-        }
-
-        $stmt = $pdo->query('SELECT id, slug, title, description, date, image, updated_at, updated_by FROM news ORDER BY date DESC LIMIT 50');
-        $rows = $stmt->fetchAll();
-        echo json_encode($rows);
-        exit;
-    }
-
-    if ($method === 'POST') {
-        $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true);
-        if (!is_array($data)) $data = $_POST;
-
-        $id = isset($data['id']) && $data['id'] !== '' ? (int)$data['id'] : null;
-        $slugv = trim($data['slug'] ?? '');
-        $title = trim($data['title'] ?? '');
-        $description = trim($data['description'] ?? '');
-        $content = $data['content'] ?? null;
-        $date = $data['date'] ?? date('Y-m-d H:i:s');
-        $image = isset($data['image']) ? trim((string)$data['image']) : '';
-        $link = isset($data['link']) ? trim((string)$data['link']) : '';
-
-        if ($slugv === '' || $title === '') {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing required fields: slug and title']);
-            exit;
-        }
-
-        if ($id) {
-            $check = $pdo->prepare('SELECT id FROM news WHERE id = ? LIMIT 1');
-            $check->execute([$id]);
-            $exists = (bool)$check->fetch();
-
-            if ($exists) {
-                $slugCheck = $pdo->prepare('SELECT id FROM news WHERE slug = ? AND id != ? LIMIT 1');
-                $slugCheck->execute([$slugv, $id]);
-            } else {
-                $slugCheck = $pdo->prepare('SELECT id FROM news WHERE slug = ? LIMIT 1');
-                $slugCheck->execute([$slugv]);
-            }
-            if ($slugCheck->fetch()) {
-                http_response_code(409);
-                echo json_encode(['success' => false, 'message' => 'Slug already exists']);
-                exit;
-            }
-
-            if ($exists) {
-                auditCheckConflict($pdo, 'news', $id, $data['expected_updated_at'] ?? null);
-                $before = auditFetchRow($pdo, 'news', $id);
-                $stmt = $pdo->prepare('UPDATE news SET slug = ?, title = ?, description = ?, content = ?, date = ?, image = ?, link = ?, updated_by = ? WHERE id = ?');
-                $stmt->execute([$slugv, $title, $description, $content, $date, $image, $link, $user['username'], $id]);
-                auditLog($pdo, $user, 'news', $id, 'update', $before, auditFetchRow($pdo, 'news', $id));
-                echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
-                exit;
-            } else {
-                $stmt = $pdo->prepare('INSERT INTO news (id, slug, title, description, content, date, image, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-                $stmt->execute([$id, $slugv, $title, $description, $content, $date, $image, $link]);
-                auditLog($pdo, $user, 'news', $id, 'create', null, auditFetchRow($pdo, 'news', $id));
-                echo json_encode(['success' => true, 'message' => 'Created', 'id' => $id]);
-                exit;
-            }
-        } else {
-            $slugCheck = $pdo->prepare('SELECT id FROM news WHERE slug = ? LIMIT 1');
-            $slugCheck->execute([$slugv]);
-            if ($slugCheck->fetch()) {
-                http_response_code(409);
-                echo json_encode(['success' => false, 'message' => 'Slug already exists']);
-                exit;
-            }
-
-            $stmt = $pdo->prepare('INSERT INTO news (slug, title, description, content, date, image, link) VALUES (?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute([$slugv, $title, $description, $content, $date, $image, $link]);
-            $newId = (int)$pdo->lastInsertId();
-            auditLog($pdo, $user, 'news', $newId, 'create', null, auditFetchRow($pdo, 'news', $newId));
-            echo json_encode(['success' => true, 'message' => 'Created', 'id' => $newId]);
-            exit;
-        }
-    }
-
-    if ($method === 'DELETE') {
-        $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true);
-        if (!is_array($data)) $data = $_GET;
-
-        $id = isset($data['id']) ? (int)$data['id'] : null;
-        $slugv = isset($data['slug']) ? trim($data['slug']) : null;
-
-        if (!$id && !$slugv) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing id or slug for deletion']);
-            exit;
-        }
-
-        if ($id) {
-            auditCheckConflict($pdo, 'news', $id, $data['expected_updated_at'] ?? null);
-            $before = auditFetchRow($pdo, 'news', $id);
-            $stmt = $pdo->prepare('DELETE FROM news WHERE id = ?');
-            $stmt->execute([$id]);
-            if ($stmt->rowCount()) auditLog($pdo, $user, 'news', $id, 'delete', $before, null);
-            echo json_encode(['success' => true, 'message' => 'Deleted', 'id' => $id]);
-            exit;
-        }
-
-        if ($slugv) {
-            $beforeRowsStmt = $pdo->prepare('SELECT * FROM news WHERE slug = ?');
-            $beforeRowsStmt->execute([$slugv]);
-            $beforeRows = $beforeRowsStmt->fetchAll();
-            $stmt = $pdo->prepare('DELETE FROM news WHERE slug = ?');
-            $stmt->execute([$slugv]);
-            foreach ($beforeRows as $row) {
-                auditLog($pdo, $user, 'news', $row['id'], 'delete', $row, null);
-            }
-            echo json_encode(['success' => true, 'message' => 'Deleted', 'slug' => $slugv, 'affected_ids' => array_column($beforeRows, 'id')]);
-            exit;
-        }
-    }
-
-    http_response_code(405);
-    echo json_encode(['success' => false, 'message' => 'Method not allowed']);
-
-} catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'DB connection error: ' . $e->getMessage()]);
-    exit;
+function slugTaken(PDO $pdo, string $slug, ?int $exceptId): bool {
+    $stmt = $pdo->prepare('SELECT id FROM news WHERE slug = ? AND id <> ? LIMIT 1');
+    $stmt->execute([$slug, $exceptId ?? 0]);
+    return (bool)$stmt->fetch();
 }
 
-?>
+if ($method === 'POST') {
+    $data = requestBody();
+
+    $id = isset($data['id']) && $data['id'] !== '' && $data['id'] !== null ? (int)$data['id'] : null;
+    $slug = trim((string)($data['slug'] ?? ''));
+    $title = trim((string)($data['title'] ?? ''));
+    $description = trim((string)($data['description'] ?? ''));
+    $content = sanitizeHtml(isset($data['content']) ? (string)$data['content'] : '');
+    $date = trim((string)($data['date'] ?? '')) ?: date('Y-m-d H:i:s');
+    $image = sanitizeUrl($data['image'] ?? '');
+    $link = sanitizeUrl($data['link'] ?? '');
+
+    if ($slug === '' || $title === '') {
+        jsonError('Missing required fields: slug and title', 400);
+    }
+    if (!preg_match('~^[^\s/?#%<>"\'\\\\]+$~u', $slug) || mb_strlen($slug) > 200) {
+        jsonError('Der Slug darf keine Leerzeichen oder Sonderzeichen wie / ? # % enthalten', 400);
+    }
+    if (strtotime($date) === false) {
+        jsonError('Ungültiges Datum', 400);
+    }
+    if (slugTaken($pdo, $slug, $id)) {
+        jsonError('Slug existiert bereits', 409, ['code' => 'slug_exists']);
+    }
+
+    if ($id !== null) {
+        $before = auditFetchRow($pdo, 'news', $id);
+        if (!$before) jsonError('News not found', 404);
+        guardWrite($pdo, 'news', $id, $user, $data['expected_updated_at'] ?? null);
+        $stmt = $pdo->prepare('UPDATE news SET slug = ?, title = ?, description = ?, content = ?, date = ?, image = ?, link = ?, updated_by = ? WHERE id = ?');
+        $stmt->execute([$slug, $title, $description, $content, $date, $image, $link, $user['username'], $id]);
+        auditLog($pdo, $user, 'news', $id, 'update', $before, auditFetchRow($pdo, 'news', $id));
+        jsonResponse(['success' => true, 'message' => 'Updated', 'id' => $id]);
+    }
+
+    $newId = insertWithNextId($pdo, 'news', function (int $newId) use ($pdo, $slug, $title, $description, $content, $date, $image, $link, $user) {
+        $stmt = $pdo->prepare('INSERT INTO news (id, slug, title, description, content, date, image, link, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$newId, $slug, $title, $description, $content, $date, $image, $link, $user['username']]);
+    });
+    auditLog($pdo, $user, 'news', $newId, 'create', null, auditFetchRow($pdo, 'news', $newId));
+    jsonResponse(['success' => true, 'message' => 'Created', 'id' => $newId]);
+}
+
+if ($method === 'DELETE') {
+    $data = requestBody();
+    if (!$data) $data = $_GET;
+    $id = isset($data['id']) ? (int)$data['id'] : 0;
+    $slug = isset($data['slug']) ? trim((string)$data['slug']) : '';
+
+    if (!$id && $slug !== '') {
+        $stmt = $pdo->prepare('SELECT id FROM news WHERE slug = ? LIMIT 1');
+        $stmt->execute([$slug]);
+        $id = (int)($stmt->fetchColumn() ?: 0);
+        if (!$id) jsonError('News not found', 404);
+    }
+    if (!$id) {
+        jsonError('Missing id or slug for deletion', 400);
+    }
+
+    $before = auditFetchRow($pdo, 'news', $id);
+    if (!$before) jsonError('News not found', 404);
+    guardWrite($pdo, 'news', $id, $user, $data['expected_updated_at'] ?? null);
+    $stmt = $pdo->prepare('DELETE FROM news WHERE id = ?');
+    $stmt->execute([$id]);
+    if ($stmt->rowCount()) auditLog($pdo, $user, 'news', $id, 'delete', $before, null);
+    jsonResponse(['success' => true, 'message' => 'Deleted', 'id' => $id]);
+}
+
+jsonError('Method not allowed', 405);

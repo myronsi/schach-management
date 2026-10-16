@@ -1,31 +1,14 @@
 <?php
 require_once __DIR__ . '/auth-middleware.php';
 
-$origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
-header('Access-Control-Allow-Origin: ' . $origin);
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token');
-header('Access-Control-Allow-Credentials: false');
-header('Content-Type: application/json; charset=utf-8');
+sendCorsHeaders(['POST']);
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit; }
-
-$env = [];
-$envFile = __DIR__ . '/.env';
-if (file_exists($envFile)) $env = parse_ini_file($envFile);
-$host = $env['host2'] ?? '';
-$user = $env['user2'] ?? '';
-$password = $env['password2'] ?? '';
-$database = $env['database2'] ?? '';
-$port = isset($env['port2']) ? (int)$env['port2'] : 3306;
+const LOCKABLE_ENTITIES = ['documents', 'events', 'fastinfo', 'history', 'media', 'news', 'teams', 'tournaments'];
 
 try {
-    $pdo = new PDO("mysql:host=$host;dbname=$database;port=$port;charset=utf8mb4", $user, $password, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
-    $currentUser = requireAuthentication(['admin', 'chairman']);
-    $data = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+    $pdo = contentDb();
+    $currentUser = requireEditor();
+    $data = requestBody();
     $action = strtolower((string)($data['action'] ?? $_GET['action'] ?? ''));
     $entity = trim((string)($data['entity'] ?? $_GET['entity'] ?? ''));
     $entityId = (string)($data['entity_id'] ?? $_GET['entity_id'] ?? '');
@@ -33,8 +16,10 @@ try {
     $username = (string)($currentUser['username'] ?? 'unknown');
 
     if ($entity === '' || $entityId === '') {
-        http_response_code(400);
-        echo json_encode(['success'=>false,'message'=>'Missing entity or entity_id']); exit;
+        jsonError('Missing entity or entity_id', 400);
+    }
+    if (!in_array($entity, LOCKABLE_ENTITIES, true) || strlen($entityId) > 64) {
+        jsonError('Invalid entity', 400);
     }
 
     // Expired locks are never considered active.
@@ -99,6 +84,6 @@ try {
     http_response_code(400);
     echo json_encode(['success'=>false,'message'=>'Unknown action']);
 } catch (Throwable $e) {
-    http_response_code(500);
-    echo json_encode(['success'=>false,'message'=>'Edit lock error: ' . $e->getMessage()]);
+    error_log('Edit lock error: ' . $e->getMessage());
+    jsonError('Edit lock error', 500);
 }

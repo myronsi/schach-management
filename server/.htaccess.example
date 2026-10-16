@@ -1,0 +1,26 @@
+# Example hardening for the /api/ directory on the web host (Apache).
+# Not active as-is: merge these rules into the existing /api/.htaccess on the server
+# (that file is not in the repository because it is host specific).
+
+# Pass the Authorization header through to PHP (needed on many shared hosts).
+RewriteEngine On
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Never serve configuration, dotfiles or composer files.
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+<FilesMatch "\.(ini|lock|json|md|example)$">
+    Require all denied
+</FilesMatch>
+
+# Internal includes and CLI-only scripts must not be called directly.
+<FilesMatch "^(common|files|audit|auth-middleware|cron-guard)\.php$">
+    Require all denied
+</FilesMatch>
+
+# Composer dependencies are only included by PHP.
+RedirectMatch 404 ^/api/vendor/
+
+Options -Indexes

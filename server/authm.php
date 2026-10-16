@@ -3,236 +3,147 @@
 require_once __DIR__ . '/auth-middleware.php';
 require_once __DIR__ . '/audit.php';
 
-$origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
-header('Access-Control-Allow-Origin: ' . $origin);
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS, DELETE, PUT, PATCH');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token');
-header('Access-Control-Allow-Credentials: false');
-header('Content-Type: application/json; charset=utf-8');
+sendCorsHeaders(['GET', 'POST', 'DELETE']);
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
+const USER_COLUMNS = 'username, status, password_status, first_name, last_name';
+const MIN_PASSWORD_LENGTH = 8;
+
+$method = $_SERVER['REQUEST_METHOD'];
+$currentUser = requireEditor();
+$pdo = authDb();
+
+function fetchManagedUser(PDO $pdo, string $username): ?array {
+    $stmt = $pdo->prepare('SELECT ' . USER_COLUMNS . ', password FROM users WHERE username = ? LIMIT 1');
+    $stmt->execute([$username]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function publicUser(?array $row): ?array {
+    if ($row === null) return null;
+    unset($row['password']);
+    return $row;
+}
+
+/** Non-chairmen may never touch a chairman account. */
+function assertMayManage(array $currentUser, ?array $target): void {
+    if ($target && $target['status'] === 'chairman' && $currentUser['status'] !== 'chairman') {
+        jsonError('Nur der Vorsitzende kann das Konto des Vorsitzenden ändern', 403);
+    }
+}
+
+if ($method === 'GET') {
+    $username = $_GET['username'] ?? null;
+    if (is_string($username) && $username !== '') {
+        $stmt = $pdo->prepare('SELECT ' . USER_COLUMNS . ' FROM users WHERE username = ? LIMIT 1');
+        $stmt->execute([$username]);
+        $row = $stmt->fetch();
+        if (!$row) jsonError('Not found', 404);
+        jsonResponse($row);
+    }
+    $rows = $pdo->query('SELECT ' . USER_COLUMNS . ' FROM users ORDER BY username ASC')->fetchAll();
+    echo json_encode($rows, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-$env = [];
-$envFile = __DIR__ . '/.env.auth';
-if (file_exists($envFile)) $env = parse_ini_file($envFile);
+if ($method === 'POST') {
+    $data = requestBody();
 
-$host = $env['host'] ?? '';
-$user = $env['user'] ?? '';
-$password = $env['password'] ?? '';
-$database = $env['database'] ?? '';
-$port = isset($env['port']) ? (int)$env['port'] : 3306;
+    $usernameValue = trim((string)($data['username'] ?? ''));
+    $passwordValue = (string)($data['password'] ?? ''); // never trim passwords
+    $statusValue = trim((string)($data['status'] ?? 'user'));
+    $passwordStatusValue = trim((string)($data['password_status'] ?? 'unchanged'));
+    $firstNameValue = isset($data['first_name']) ? trim((string)$data['first_name']) : '';
+    $lastNameValue = isset($data['last_name']) ? trim((string)$data['last_name']) : '';
+    $isUpdate = ($data['is_update'] ?? false) === true;
 
-$input = $_GET;
-$username = $input['username'] ?? null;
-
-try {
-    $dsn = "mysql:host=$host;dbname=$database;port=$port;charset=utf8mb4";
-    $pdo = new PDO($dsn, $user, $password, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
-
-    $method = $_SERVER['REQUEST_METHOD'];
-
-    if ($method === 'GET') {
-        $currentUser = requireAuthentication(['admin', 'chairman']);
-        error_log("Authenticated user '{$currentUser['username']}' performing GET on authm.php");
+    if ($usernameValue === '' || mb_strlen($usernameValue) > 100) {
+        jsonError('Missing required field: username', 400);
+    }
+    if (!array_key_exists($statusValue, ROLE_RANK)) {
+        jsonError('Invalid status', 400);
+    }
+    if (!in_array($passwordStatusValue, ['changed', 'unchanged'], true)) {
+        jsonError('Invalid password_status', 400);
+    }
+    if ($passwordValue !== '' && mb_strlen($passwordValue) < MIN_PASSWORD_LENGTH) {
+        jsonError('Das Passwort muss mindestens ' . MIN_PASSWORD_LENGTH . ' Zeichen lang sein', 400);
     }
 
-    if ($method === 'GET') {
-        if ($username) {
-            $stmt = $pdo->prepare('SELECT username, status, password_status, first_name, last_name FROM users WHERE username = ? LIMIT 1');
-            $stmt->execute([$username]);
-            $row = $stmt->fetch();
-            if (!$row) {
-                http_response_code(404);
-                echo json_encode(['success' => false, 'message' => 'Not found']);
-                exit;
-            }
-            echo json_encode($row);
-            exit;
-        }
-        
-        $stmt = $pdo->query('SELECT username, status, password_status, first_name, last_name FROM users ORDER BY username ASC');
-        $rows = $stmt->fetchAll();
-        echo json_encode($rows);
-        exit;
+    $isChairman = $currentUser['status'] === 'chairman';
+    if (!$isChairman && ROLE_RANK[$statusValue] > ROLE_RANK[$currentUser['status']]) {
+        jsonError('You cannot assign a status higher than your own', 403);
     }
 
-    if ($method === 'POST') {
-        $currentUser = requireAuthentication(['admin', 'chairman']);
-        
-        $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true);
-        if (!is_array($data)) $data = $_POST;
+    $existing = fetchManagedUser($pdo, $usernameValue);
 
-        $usernameValue = trim($data['username'] ?? '');
-        $passwordValue = trim($data['password'] ?? '');
-        $statusValue = trim($data['status'] ?? 'user');
+    if ($isUpdate || $existing) {
+        if (!$existing) jsonError('User not found', 404);
+        assertMayManage($currentUser, $existing);
 
-        $passwordStatusValue = trim($data['password_status'] ?? 'unchanged');
-        $firstNameValue = isset($data['first_name']) ? trim($data['first_name']) : null;
-        $lastNameValue = isset($data['last_name']) ? trim($data['last_name']) : null;
-        
-        $isUpdate = isset($data['is_update']) && $data['is_update'] === true;
-
-        if ($usernameValue === '') {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing required field: username']);
-            exit;
+        $isSelf = $existing['username'] === $currentUser['username'];
+        if ($isSelf && $statusValue !== $existing['status']) {
+            jsonError('Den eigenen Status kann man nicht ändern', 403);
         }
 
-        $check = $pdo->prepare('SELECT username, password FROM users WHERE username = ? LIMIT 1');
-        $check->execute([$usernameValue]);
-        $exists = $check->fetch();
-
-        $allowedStatuses = ['user', 'admin', 'chairman', 'blocked'];
-        if (!in_array($statusValue, $allowedStatuses, true)) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Invalid status']);
-            exit;
-        }
-
-        $roleRank = [
-            'user' => 1,
-            'admin' => 2,
-            'chairman' => 3,
-            'blocked' => 0
-        ];
-
-        $targetCurrentStatus = $exists['status'] ?? null;
-        if ($currentUser['status'] !== 'chairman') {
-            if ($statusValue === 'chairman') {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'message' => 'Only the chairman can assign the chairman status']);
-                exit;
-            }
-            if ($targetCurrentStatus === 'chairman' && $statusValue !== 'chairman') {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'message' => 'Only the chairman can change the chairman status']);
-                exit;
-            }
-            if ($roleRank[$statusValue] > $roleRank[$currentUser['status']]) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'message' => 'You cannot assign a status higher than your own']);
-                exit;
-            }
-        }
-
-        if ($isUpdate || $exists) {
-            if (!$exists) {
-                http_response_code(404);
-                echo json_encode(['success' => false, 'message' => 'User not found']);
-                exit;
-            }
-
-            $beforeUser = [
-                'username' => $exists['username'],
-                'status' => $exists['status'] ?? null,
-                'password_status' => $exists['password_status'] ?? null,
-                'first_name' => $exists['first_name'] ?? null,
-                'last_name' => $exists['last_name'] ?? null,
-            ];
-
-            if ($passwordValue !== '') {
-                $hashedPassword = password_hash($passwordValue, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
-                $stmt->execute([$hashedPassword, $statusValue, $passwordStatusValue, $firstNameValue ?? '', $lastNameValue ?? '', $usernameValue]);
-            } else {
-                $existingPassword = $exists['password'];
-                $isHashed = preg_match('/^\$2[ayb]\$.{56}$/', $existingPassword);
-
-                if (!$isHashed && $existingPassword !== '') {
-                    $hashedPassword = password_hash($existingPassword, PASSWORD_DEFAULT);
-                    $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
-                    $stmt->execute([$hashedPassword, $statusValue, $passwordStatusValue, $firstNameValue ?? '', $lastNameValue ?? '', $usernameValue]);
-                } else {
-                    $stmt = $pdo->prepare('UPDATE users SET status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
-                    $stmt->execute([$statusValue, $passwordStatusValue, $firstNameValue ?? '', $lastNameValue ?? '', $usernameValue]);
-                }
-            }
-
-            $afterStmt = $pdo->prepare('SELECT username, status, password_status, first_name, last_name FROM users WHERE username = ? LIMIT 1');
-            $afterStmt->execute([$usernameValue]);
-            $afterUser = $afterStmt->fetch();
-            auditLog($pdo, $currentUser, 'authm', $usernameValue, 'update', $beforeUser, $afterUser);
-
-            echo json_encode(['success' => true, 'message' => 'Updated', 'username' => $usernameValue]);
-            exit;
+        $before = publicUser($existing);
+        if ($passwordValue !== '') {
+            $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
+            $stmt->execute([password_hash($passwordValue, PASSWORD_DEFAULT), $statusValue, $passwordStatusValue, $firstNameValue, $lastNameValue, $usernameValue]);
         } else {
-            if ($passwordValue === '') {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'message' => 'Password is required for new user']);
-                exit;
+            $existingPassword = (string)$existing['password'];
+            $info = password_get_info($existingPassword);
+            if ($existingPassword !== '' && ($info['algo'] === null || $info['algo'] === 0)) {
+                // Legacy plaintext password: hash it while we're here.
+                $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
+                $stmt->execute([password_hash($existingPassword, PASSWORD_DEFAULT), $statusValue, $passwordStatusValue, $firstNameValue, $lastNameValue, $usernameValue]);
+            } else {
+                $stmt = $pdo->prepare('UPDATE users SET status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
+                $stmt->execute([$statusValue, $passwordStatusValue, $firstNameValue, $lastNameValue, $usernameValue]);
             }
-
-            $checkUsername = $pdo->prepare('SELECT username FROM users WHERE username = ? LIMIT 1');
-            $checkUsername->execute([$usernameValue]);
-            if ($checkUsername->fetch()) {
-                http_response_code(409);
-                echo json_encode(['success' => false, 'message' => 'Username already exists']);
-                exit;
-            }
-
-            $hashedPassword = password_hash($passwordValue, PASSWORD_DEFAULT);
-
-            $stmt = $pdo->prepare('INSERT INTO users (username, password, status, password_status, first_name, last_name) VALUES (?, ?, ?, ?, ?, ?)');
-            $stmt->execute([$usernameValue, $hashedPassword, $statusValue, $passwordStatusValue, $firstNameValue ?? '', $lastNameValue ?? '']);
-            
-            echo json_encode(['success' => true, 'message' => 'Created', 'username' => $usernameValue]);
-            exit;
         }
+
+        $after = publicUser(fetchManagedUser($pdo, $usernameValue));
+        auditLog($pdo, $currentUser, 'authm', $usernameValue, 'update', $before, $after);
+        jsonResponse(['success' => true, 'message' => 'Updated', 'username' => $usernameValue]);
     }
 
-    if ($method === 'DELETE') {
-        $currentUser = requireAuthentication(['admin', 'chairman']);
-        
-        $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true);
-        if (!is_array($data)) $data = $_GET;
-
-        $usernameValue = isset($data['username']) ? trim($data['username']) : null;
-
-        if (!$usernameValue) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing username for deletion']);
-            exit;
-        }
-
-        $beforeStmt = $pdo->prepare('SELECT username, status, password_status, first_name, last_name FROM users WHERE username = ? LIMIT 1');
-        $beforeStmt->execute([$usernameValue]);
-        $beforeUser = $beforeStmt->fetch();
-
-        if (!$beforeUser) {
-            http_response_code(404);
-            echo json_encode(['success' => false, 'message' => 'User not found']);
-            exit;
-        }
-
-        $stmt = $pdo->prepare('DELETE FROM users WHERE username = ?');
-        $stmt->execute([$usernameValue]);
-
-        if ($stmt->rowCount() === 0) {
-            http_response_code(404);
-            echo json_encode(['success' => false, 'message' => 'User not found']);
-            exit;
-        }
-        
-        auditLog($pdo, $currentUser, 'authm', $usernameValue, 'delete', $beforeUser, null);
-        echo json_encode(['success' => true, 'message' => 'Deleted', 'username' => $usernameValue]);
-        exit;
+    if ($passwordValue === '') {
+        jsonError('Password is required for new user', 400);
     }
 
-    http_response_code(405);
-    echo json_encode(['success' => false, 'message' => 'Method not allowed']);
-
-} catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'DB connection error: ' . $e->getMessage()]);
-    exit;
+    try {
+        $stmt = $pdo->prepare('INSERT INTO users (username, password, status, password_status, first_name, last_name) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$usernameValue, password_hash($passwordValue, PASSWORD_DEFAULT), $statusValue, $passwordStatusValue, $firstNameValue, $lastNameValue]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000') jsonError('Username already exists', 409);
+        throw $e;
+    }
+    auditLog($pdo, $currentUser, 'authm', $usernameValue, 'create', null, publicUser(fetchManagedUser($pdo, $usernameValue)));
+    jsonResponse(['success' => true, 'message' => 'Created', 'username' => $usernameValue]);
 }
 
-?>
+if ($method === 'DELETE') {
+    $data = requestBody();
+    if (!$data) $data = $_GET;
+    $usernameValue = isset($data['username']) ? trim((string)$data['username']) : '';
+    if ($usernameValue === '') {
+        jsonError('Missing username for deletion', 400);
+    }
+    if ($usernameValue === $currentUser['username']) {
+        jsonError('Das eigene Konto kann nicht gelöscht werden', 403);
+    }
+
+    $existing = fetchManagedUser($pdo, $usernameValue);
+    if (!$existing) jsonError('User not found', 404);
+    assertMayManage($currentUser, $existing);
+
+    $stmt = $pdo->prepare('DELETE FROM users WHERE username = ?');
+    $stmt->execute([$usernameValue]);
+    if ($stmt->rowCount() === 0) jsonError('User not found', 404);
+
+    auditLog($pdo, $currentUser, 'authm', $usernameValue, 'delete', publicUser($existing), null);
+    jsonResponse(['success' => true, 'message' => 'Deleted', 'username' => $usernameValue]);
+}
+
+jsonError('Method not allowed', 405);
