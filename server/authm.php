@@ -6,7 +6,7 @@ require_once __DIR__ . '/audit.php';
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS, DELETE, PUT, PATCH');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token');
 header('Access-Control-Allow-Credentials: false');
 header('Content-Type: application/json; charset=utf-8');
 

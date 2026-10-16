@@ -7,7 +7,7 @@ $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 
 header('Vary: Origin');
 header('Access-Control-Allow-Methods: GET, POST, PATCH, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token');
 header('Content-Type: application/json; charset=utf-8');
 
 if ($origin !== '') {

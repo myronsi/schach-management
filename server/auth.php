@@ -8,7 +8,7 @@ use Firebase\JWT\Key;
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header('Access-Control-Allow-Origin: ' . $origin);
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token');
 header('Access-Control-Allow-Credentials: false');
 header('Content-Type: application/json');
 
@@ -108,6 +108,14 @@ $token = null;
 $token = $input['token'] ?? $_POST['token'] ?? null;
 if (!$token) {
     $token = getTokenFromHeader();
+}
+if (!$token) {
+    $token = $_SERVER['HTTP_X_AUTH_TOKEN'] ?? '';
+    if ($token === '' && function_exists('getallheaders')) {
+        $headers = getallheaders();
+        $token = $headers['X-Auth-Token'] ?? $headers['x-auth-token'] ?? '';
+    }
+    if ($token === '') $token = null;
 }
 
 error_log("Token search - Input: " . ($input['token'] ?? 'none') . 

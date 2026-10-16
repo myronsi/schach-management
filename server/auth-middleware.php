@@ -55,6 +55,10 @@ function requireAuthentication($requiredPermissions = ['admin']) {
     if (!$token) {
         $token = getTokenFromAuthHeader();
     }
+
+    if (!$token) {
+        $token = getTokenFromCustomHeader();
+    }
     
     if (!$token) {
         http_response_code(401);
@@ -103,6 +107,17 @@ function getTokenFromAuthHeader() {
     }
     
     return null;
+}
+
+function getTokenFromCustomHeader() {
+    $token = $_SERVER['HTTP_X_AUTH_TOKEN'] ?? '';
+
+    if ($token === '' && function_exists('getallheaders')) {
+        $headers = getallheaders();
+        $token = $headers['X-Auth-Token'] ?? $headers['x-auth-token'] ?? '';
+    }
+
+    return $token !== '' ? trim($token) : null;
 }
 
 function checkReadOnlyAccess() {

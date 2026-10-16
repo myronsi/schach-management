@@ -137,17 +137,40 @@ export const jwtUtils = {
 
 export const authToken = {
   COOKIE_NAME: 'auth_token',
+  STORAGE_KEY: 'auth_token',
   
   set(token: string): void {
     cookieUtils.set(this.COOKIE_NAME, token);
+    try {
+      localStorage.setItem(this.STORAGE_KEY, token);
+    } catch {}
   },
   
   get(): string | null {
-    return cookieUtils.get(this.COOKIE_NAME);
+    const cookieToken = cookieUtils.get(this.COOKIE_NAME);
+    if (cookieToken) {
+      try {
+        localStorage.setItem(this.STORAGE_KEY, cookieToken);
+      } catch {}
+      return cookieToken;
+    }
+
+    try {
+      const storedToken = localStorage.getItem(this.STORAGE_KEY);
+      if (storedToken) {
+        cookieUtils.set(this.COOKIE_NAME, storedToken);
+        return storedToken;
+      }
+    } catch {}
+
+    return null;
   },
   
   remove(): void {
     cookieUtils.remove(this.COOKIE_NAME);
+    try {
+      localStorage.removeItem(this.STORAGE_KEY);
+    } catch {}
   },
   
   exists(): boolean {
@@ -222,6 +245,7 @@ export const httpUtils = {
     
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
+      headers['X-Auth-Token'] = token;
     }
     
     return headers;
@@ -237,6 +261,7 @@ export const httpUtils = {
     
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
+      headers['X-Auth-Token'] = token;
     }
 
     return fetch(url, {
