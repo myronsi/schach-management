@@ -2,21 +2,22 @@
 require_once __DIR__ . '/auth-middleware.php';
 require_once __DIR__ . '/audit.php';
 
+$env = parse_ini_file(__DIR__ . '/.env.auth');
+
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-$allowedOrigins = ['https://sc-laufenburg.de', 'https://www.sc-laufenburg.de'];
-if ($origin !== '' && in_array($origin, $allowedOrigins, true)) header('Access-Control-Allow-Origin: ' . $origin);
+$allowedOrigins = array_map('trim', explode(',', $env['allowed_origins'] ?? ''));
+
+if ($origin !== '' && in_array($origin, $allowedOrigins, true)) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+}
+
 header('Vary: Origin');
 header('Access-Control-Allow-Methods: GET, POST, PATCH, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Content-Type: application/json; charset=utf-8');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
-$env = parse_ini_file(__DIR__ . '/.env.auth');
 $dsn = sprintf('mysql:host=%s;dbname=%s;port=%d;charset=utf8mb4', $env['host'] ?? '', $env['database'] ?? '', (int)($env['port'] ?? 3306));
-
-function validSignature($value): bool {
-    return is_string($value) && preg_match('/^data:image\/png;base64,[A-Za-z0-9+\/=]+$/', $value) === 1 && (($bytes = base64_decode(substr($value, strpos($value, ',') + 1), true)) !== false) && strlen($bytes) <= 1024 * 1024;
-}
 
 try {
     $pdo = new PDO($dsn, $env['user'] ?? '', $env['password'] ?? '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
