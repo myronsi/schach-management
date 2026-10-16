@@ -38,8 +38,8 @@ try {
     $method = $_SERVER['REQUEST_METHOD'];
 
     if ($method === 'GET') {
-        $user = requireAuthentication(['admin']);
-        error_log("Authenticated user '{$user['username']}' performing GET on authm.php");
+        $currentUser = requireAuthentication(['admin', 'chairman']);
+        error_log("Authenticated user '{$currentUser['username']}' performing GET on authm.php");
     }
 
     if ($method === 'GET') {
@@ -63,7 +63,7 @@ try {
     }
 
     if ($method === 'POST') {
-        requireAuthentication(['admin']);
+        $currentUser = requireAuthentication(['admin', 'chairman']);
         
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true);
@@ -72,6 +72,7 @@ try {
         $usernameValue = trim($data['username'] ?? '');
         $passwordValue = trim($data['password'] ?? '');
         $statusValue = trim($data['status'] ?? 'user');
+
         $passwordStatusValue = trim($data['password_status'] ?? 'unchanged');
         $firstNameValue = isset($data['first_name']) ? trim($data['first_name']) : null;
         $lastNameValue = isset($data['last_name']) ? trim($data['last_name']) : null;
@@ -87,6 +88,39 @@ try {
         $check = $pdo->prepare('SELECT username, password FROM users WHERE username = ? LIMIT 1');
         $check->execute([$usernameValue]);
         $exists = $check->fetch();
+
+        $allowedStatuses = ['user', 'admin', 'chairman', 'blocked'];
+        if (!in_array($statusValue, $allowedStatuses, true)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Invalid status']);
+            exit;
+        }
+
+        $roleRank = [
+            'user' => 1,
+            'admin' => 2,
+            'chairman' => 3,
+            'blocked' => 0
+        ];
+
+        $targetCurrentStatus = $exists['status'] ?? null;
+        if ($currentUser['status'] !== 'chairman') {
+            if ($statusValue === 'chairman') {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Only the chairman can assign the chairman status']);
+                exit;
+            }
+            if ($targetCurrentStatus === 'chairman' && $statusValue !== 'chairman') {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Only the chairman can change the chairman status']);
+                exit;
+            }
+            if ($roleRank[$statusValue] > $roleRank[$currentUser['status']]) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'You cannot assign a status higher than your own']);
+                exit;
+            }
+        }
 
         if ($isUpdate || $exists) {
             if (!$exists) {
@@ -124,7 +158,7 @@ try {
             $afterStmt = $pdo->prepare('SELECT username, status, password_status, first_name, last_name FROM users WHERE username = ? LIMIT 1');
             $afterStmt->execute([$usernameValue]);
             $afterUser = $afterStmt->fetch();
-            auditLog($pdo, $user, 'authm', $usernameValue, 'update', $beforeUser, $afterUser);
+            auditLog($pdo, $currentUser, 'authm', $usernameValue, 'update', $beforeUser, $afterUser);
 
             echo json_encode(['success' => true, 'message' => 'Updated', 'username' => $usernameValue]);
             exit;
@@ -154,7 +188,7 @@ try {
     }
 
     if ($method === 'DELETE') {
-        requireAuthentication(['admin']);
+        $currentUser = requireAuthentication(['admin', 'chairman']);
         
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true);
@@ -168,16 +202,26 @@ try {
             exit;
         }
 
+        $beforeStmt = $pdo->prepare('SELECT username, status, password_status, first_name, last_name FROM users WHERE username = ? LIMIT 1');
+        $beforeStmt->execute([$usernameValue]);
+        $beforeUser = $beforeStmt->fetch();
+
+        if (!$beforeUser) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'User not found']);
+            exit;
+        }
+
         $stmt = $pdo->prepare('DELETE FROM users WHERE username = ?');
         $stmt->execute([$usernameValue]);
-        
+
         if ($stmt->rowCount() === 0) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'User not found']);
             exit;
         }
         
-        auditLog($pdo, $user, 'authm', $usernameValue, 'delete', $beforeUser, null);
+        auditLog($pdo, $currentUser, 'authm', $usernameValue, 'delete', $beforeUser, null);
         echo json_encode(['success' => true, 'message' => 'Deleted', 'username' => $usernameValue]);
         exit;
     }

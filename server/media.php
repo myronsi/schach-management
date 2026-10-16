@@ -100,7 +100,7 @@ try {
     $method = $_SERVER['REQUEST_METHOD'];
 
     if ($method === 'POST' || $method === 'DELETE' || $method === 'PUT' || $method === 'PATCH') {
-        $user = requireAuthentication(['admin']);
+        $user = requireAuthentication(['admin', 'chairman']);
         error_log("Authenticated user '{$user['username']}' performing $method operation on media");
     }
 
