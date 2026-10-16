@@ -13,21 +13,23 @@ import MediaAdmin from "./pages/media/MediaAdmin";
 import FastInfoAdmin from "./pages/fastinfo/FastInfoAdmin";
 import DocumentsAdmin from "./pages/documents/DocumentsAdmin";
 import UsersAdmin from "./pages/users/UsersAdmin";
+import MembershipApplications from "./pages/membership/MembershipApplications";
 import { Toaster } from "./components/ui/toaster";
 import { Calendar, Newspaper, History, Users, Trophy, Image, Zap, UserCog, FileText } from "lucide-react";
 
 const queryClient = new QueryClient();
 
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated } = useAuth();
-  const { isAuthChecked } = useAuth();
+const ProtectedRoute = ({ children, roles }: { children: React.ReactNode; roles?: string[] }) => {
+  const { isAuthenticated, role, isAuthChecked } = useAuth();
   if (!isAuthChecked) return null;
 
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (roles && (!role || !roles.includes(role))) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
 };
 
 const Dashboard = () => {
-  const { username } = useAuth();
+  const { username, role } = useAuth();
   
   const managementPages = [
     {
@@ -86,15 +88,24 @@ const Dashboard = () => {
       path: '/documents',
       color: 'bg-teal-50 border-teal-200 hover:bg-teal-100'
     },
-    {
+    ...(role === 'admin' ? [{
       title: 'Benutzer',
       description: 'Verwalten Sie Benutzerkonten',
       icon: UserCog,
       path: '/users',
       color: 'bg-indigo-50 border-indigo-200 hover:bg-indigo-100'
-    }
+    }] : []),
+    ...(role === 'chairman' ? [{
+      title: 'Mitgliedsanträge',
+      description: 'Neue Mitgliedsanträge prüfen und bearbeiten',
+      icon: FileText,
+      path: '/membership-applications',
+      color: 'bg-amber-50 border-amber-200 hover:bg-amber-100'
+    }] : [])
   ];
   
+  const visiblePages = managementPages.filter(page => role === 'admin' || page.path === '/membership-applications');
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
@@ -110,7 +121,7 @@ const Dashboard = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {managementPages.map((page) => {
+            {visiblePages.map((page) => {
               const Icon = page.icon;
               return (
                 <Link key={page.path} to={page.path}>
@@ -144,15 +155,16 @@ const AppContent = () => {
     <div className="min-h-screen flex flex-col">
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/events" element={<ProtectedRoute><EventsList /></ProtectedRoute>} />
-        <Route path="/news" element={<ProtectedRoute><NewsAdmin /></ProtectedRoute>} />
-        <Route path="/history" element={<ProtectedRoute><HistoryAdmin /></ProtectedRoute>} />
-        <Route path="/teams" element={<ProtectedRoute><TeamsAdmin /></ProtectedRoute>} />
-        <Route path="/tournaments" element={<ProtectedRoute><TournamentsAdmin /></ProtectedRoute>} />
-        <Route path="/media" element={<ProtectedRoute><MediaAdmin /></ProtectedRoute>} />
-        <Route path="/fastinfo" element={<ProtectedRoute><FastInfoAdmin /></ProtectedRoute>} />
-        <Route path="/documents" element={<ProtectedRoute><DocumentsAdmin /></ProtectedRoute>} />
-        <Route path="/users" element={<ProtectedRoute><UsersAdmin /></ProtectedRoute>} />
+        <Route path="/events" element={<ProtectedRoute roles={["admin"]}><EventsList /></ProtectedRoute>} />
+        <Route path="/news" element={<ProtectedRoute roles={["admin"]}><NewsAdmin /></ProtectedRoute>} />
+        <Route path="/history" element={<ProtectedRoute roles={["admin"]}><HistoryAdmin /></ProtectedRoute>} />
+        <Route path="/teams" element={<ProtectedRoute roles={["admin"]}><TeamsAdmin /></ProtectedRoute>} />
+        <Route path="/tournaments" element={<ProtectedRoute roles={["admin"]}><TournamentsAdmin /></ProtectedRoute>} />
+        <Route path="/media" element={<ProtectedRoute roles={["admin"]}><MediaAdmin /></ProtectedRoute>} />
+        <Route path="/fastinfo" element={<ProtectedRoute roles={["admin"]}><FastInfoAdmin /></ProtectedRoute>} />
+        <Route path="/documents" element={<ProtectedRoute roles={["admin"]}><DocumentsAdmin /></ProtectedRoute>} />
+        <Route path="/users" element={<ProtectedRoute roles={["admin"]}><UsersAdmin /></ProtectedRoute>} />
+        <Route path="/membership-applications" element={<ProtectedRoute roles={["chairman"]}><MembershipApplications /></ProtectedRoute>} />
         <Route 
           path="/dashboard" 
           element={
