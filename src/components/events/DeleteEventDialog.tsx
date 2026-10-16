@@ -11,6 +11,10 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { httpUtils } from '@/lib/auth-utils';
+import { apiUrl } from '@/lib/api';
+import { readJson } from '@/lib/api-errors';
+import { formatDateForAPI } from '@/lib/date';
+import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 
 type FormData = {
   title?: string;
@@ -29,7 +33,20 @@ interface Event {
   is_recurring?: number;
 }
 
-const API = 'https://sc-laufenburg.de/api/events.php';
+const API = apiUrl('events.php');
+
+interface DeleteResponse {
+  success?: boolean;
+  message?: string;
+  error?: string;
+  deleted?: number;
+}
+
+interface DeleteRequestBody {
+  mode: string;
+  title?: string;
+  date?: string;
+}
 
 const deleteModeOptions = [
   { value: "upcomingTitle", label: "Alle zukünftigen Ereignisse mit Titel" },
@@ -49,7 +66,7 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
       deleteMode: "upcomingTitle"
     }
   });
-  const [response, setResponse] = useState<any>(null);
+  const [response, setResponse] = useState<DeleteResponse | null>(null);
   const [status, setStatus] = useState('');
   const [events, setEvents] = useState<Event[]>([]);
   const [titleOpen, setTitleOpen] = useState(false);
@@ -61,59 +78,15 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
   const [selectedEndDate, setSelectedEndDate] = useState<Date | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const formatDateForAPI = (date: Date): string => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
   
-  const [alertDialog, setAlertDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    variant: 'success' | 'error' | 'info';
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    variant: 'info'
-  });
+  const { showAlert, alertProps } = useAlertDialog();
+  const { showConfirm, confirmProps } = useConfirmDialog();
   
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    onConfirm: () => void;
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    onConfirm: () => {}
-  });
   
   const watchDeleteMode = watch("deleteMode");
   const needsTitle = watchDeleteMode === "upcomingTitle";
   const needsDate = watchDeleteMode === "allOnDay";
   const needsRange = watchDeleteMode === 'range';
-
-  const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
-    setAlertDialog({
-      open: true,
-      title,
-      description,
-      variant
-    });
-  };
-
-  const showConfirm = (title: string, description: string, onConfirm: () => void) => {
-    setConfirmDialog({
-      open: true,
-      title,
-      description,
-      onConfirm
-    });
-  };
 
   useEffect(() => {
     const loadEvents = async () => {
@@ -199,7 +172,7 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
         setIsSubmitting(true);
         
         try {
-          const requestBody: any = {
+          const requestBody: DeleteRequestBody = {
             mode: formData.deleteMode
           };
           
@@ -210,8 +183,8 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
           }
           
           const res = await httpUtils.post(`${API}?action=delete`, requestBody);
-          const result = await res.json();
-          if (res.ok) {
+          const result = await readJson<DeleteResponse>(res);
+          if (res.ok && result.success !== false) {
             setResponse(result);
             setStatus('success');
             showAlert('Erfolg', `${result.deleted} Ereignis(se) erfolgreich gelöscht`, 'success');
@@ -225,9 +198,9 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
           } else {
             setStatus('error');
             setResponse(result);
-            showAlert('Fehler', result.error || 'Fehler beim Löschen', 'error');
+            showAlert(res.status === 423 ? 'Gesperrt' : 'Fehler', result.error || result.message || 'Fehler beim Löschen', 'error');
           }
-        } catch (err) {
+        } catch {
           setStatus('error');
           setResponse({ error: 'Netzwerkfehler' });
           showAlert('Fehler', 'Netzwerkfehler', 'error');
@@ -387,20 +360,10 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
         </div>
       )}
       
-      <AlertMessage
-        open={alertDialog.open}
-        onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        variant={alertDialog.variant}
-      />
+      <AlertMessage {...alertProps} />
       
       <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={confirmDialog.onConfirm}
+        {...confirmProps}
         confirmText="Löschen"
         variant="destructive"
       />

@@ -5,10 +5,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { FileCheck, Info, FileText, Folder, Link, File, HardDrive, Edit, CheckCircle } from 'lucide-react';
 import { formatFileSize, getCategoryLabel } from '../utils.tsx';
+import type { DocumentForm } from '../types';
 
 interface DocumentReviewProps {
-  form: any;
-  onFormChange: (updates: any) => void;
+  form: DocumentForm;
+  onFormChange: (updates: DocumentForm) => void;
 }
 
 export const DocumentReview: React.FC<DocumentReviewProps> = ({
@@ -47,7 +48,7 @@ export const DocumentReview: React.FC<DocumentReviewProps> = ({
             <Folder className="w-4 h-4 text-gray-600 mt-0.5" />
             <div>
               <span className="font-medium">Kategorie:</span>{' '}
-              <span className="text-gray-900">{getCategoryLabel(form.category)}</span>
+              <span className="text-gray-900">{getCategoryLabel(form.category ?? null)}</span>
             </div>
           </div>
           <div className="flex items-start gap-2">
@@ -66,7 +67,7 @@ export const DocumentReview: React.FC<DocumentReviewProps> = ({
               </div>
             </div>
           )}
-          {form.file_size && (
+          {!!form.file_size && (
             <div className="flex items-start gap-2">
               <HardDrive className="w-4 h-4 text-gray-600 mt-0.5" />
               <div>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { EditLockError, useEditLock } from '@/lib/editLock';
+import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { describeApiError } from '@/lib/api-errors';
 import Navbar from '@/components/ui/navbar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,13 +9,15 @@ import { Plus } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
-import type { MediaItem, AlertDialogState, ConfirmDialogState } from './types';
+import type { ChildItem, MediaItem } from './types';
 import { fetchMedia, fetchMediaById, deleteMedia, postMedia } from './api';
+import type { MediaPayload } from './api';
 import { useMediaForm } from './useMediaForm';
 import { MediaCard } from './MediaCard';
 import { MediaWizard } from './MediaWizard';
 import { parseChildren, stripBaseUrl, buildFullSrc } from './utils';
 import { BASE_URL } from './constants';
+import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 
 const MediaAdmin: React.FC = () => {
   const queryClient = useQueryClient();
@@ -27,41 +30,13 @@ const MediaAdmin: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<MediaItem | null>(null);
   
-  const [alertDialog, setAlertDialog] = useState<AlertDialogState>({
-    open: false,
-    title: '',
-    description: '',
-    variant: 'info'
-  });
+  const { showAlert, alertProps } = useAlertDialog();
+  const { showConfirm, confirmProps } = useConfirmDialog();
   
-  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({
-    open: false,
-    title: '',
-    description: '',
-    onConfirm: () => {}
-  });
 
   const mediaForm = useMediaForm();
 
-  const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
-    setAlertDialog({
-      open: true,
-      title,
-      description,
-      variant
-    });
-  };
-
-  const showConfirm = (title: string, description: string, onConfirm: () => void) => {
-    setConfirmDialog({
-      open: true,
-      title,
-      description,
-      onConfirm
-    });
-  };
-
-  const createUpdate = useMutation<any, Error, any>({
+  const createUpdate = useMutation<Awaited<ReturnType<typeof postMedia>>, Error, MediaPayload>({
     mutationFn: postMedia,
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['media'] });
@@ -71,20 +46,15 @@ const MediaAdmin: React.FC = () => {
       mediaForm.resetForm();
     },
     onError: (error: Error) => {
-      if (isConflictError(error)) {
-        showAlert('Änderungskonflikt', conflictDescription(error), 'error');
-      } else {
-        showAlert('Fehler', error.message || 'Konnte nicht speichern', 'error');
-      }
+      const { title, description } = describeApiError(error, error.message || 'Konnte nicht speichern');
+      showAlert(title, description, 'error');
     }
   });
 
   const startCreate = () => {
     setEditing(null);
-    const maxId = (data || []).reduce((m, it) => Math.max(m, it.id || 0), 0);
-    const newId = maxId + 1 || 1;
     mediaForm.resetForm();
-    mediaForm.setForm({ id: newId, src: '', title: '', description: '' });
+    mediaForm.setForm({ src: '', title: '', description: '' });
     setOpen(true);
   };
 
@@ -109,6 +79,7 @@ const MediaAdmin: React.FC = () => {
       mediaForm.setChildrenList(childrenWithFullUrls);
       setOpen(true);
     } catch (err) {
+      if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) { showAlert('Bearbeitung gesperrt', err.message, 'error'); return; }
       void editLock.release();
       showAlert('Fehler', 'Konnte Media nicht laden', 'error');
@@ -116,7 +87,7 @@ const MediaAdmin: React.FC = () => {
   };
 
   const handleSave = () => {
-    let processedChildren: any[] = [...mediaForm.childrenList];
+    let processedChildren: ChildItem[] = [...mediaForm.childrenList];
     
     const internalSrc = mediaForm.form.src ? stripBaseUrl(mediaForm.form.src, BASE_URL) : '';
     
@@ -141,15 +112,20 @@ const MediaAdmin: React.FC = () => {
       });
     }
 
-    const payload = { 
+    const payload: MediaPayload = {
       ...mediaForm.form,
       src: internalSrc,
       description: undefined,
       children: JSON.stringify(processedChildren)
-    } as any;
-    
-    if (mediaForm.form.id) payload.id = mediaForm.form.id;
-    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
+    };
+
+    if (editing) {
+      payload.id = editing.id;
+      if (editing.updated_at) payload.expected_updated_at = editing.updated_at;
+    } else {
+      // New entries get their id from the server.
+      delete payload.id;
+    }
     
     createUpdate.mutate(payload);
   };
@@ -164,11 +140,8 @@ const MediaAdmin: React.FC = () => {
           queryClient.invalidateQueries({ queryKey: ['media'] });
           showAlert('Erfolg', 'Media wurde erfolgreich gelöscht', 'success');
         } catch (err) {
-          if (isConflictError(err)) {
-            showAlert('Änderungskonflikt', conflictDescription(err), 'error');
-          } else {
-            showAlert('Fehler', 'Fehler beim Löschen', 'error');
-          }
+          const { title, description } = describeApiError(err, 'Fehler beim Löschen');
+          showAlert(title, description, 'error');
         }
       }
     );
@@ -252,20 +225,10 @@ const MediaAdmin: React.FC = () => {
         </div>
       </div>
       
-      <AlertMessage
-        open={alertDialog.open}
-        onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        variant={alertDialog.variant}
-      />
+      <AlertMessage {...alertProps} />
       
       <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={confirmDialog.onConfirm}
+        {...confirmProps}
         confirmText="Löschen"
         variant="destructive"
       />

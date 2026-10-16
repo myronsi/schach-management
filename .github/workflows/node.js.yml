@@ -4,20 +4,34 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (v4.4.0)
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 (v4.4.0)
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm i --legacy-peer-deps
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc -p tsconfig.app.json --noEmit
+
+      - name: Lint
+        run: npm run lint
 
       - name: Build project
         run: npm run build
@@ -26,7 +40,7 @@ jobs:
         run: ls -la dist
 
       - name: Deploy to Strato via SFTP
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.6
+        uses: wlixcc/SFTP-Deploy-Action@a5ccb9c6211a94cc59404f0fdb2a9936a6dfee64 # v1.2.6
         with:
           username: ${{ secrets.SFTP_USERNAME }}
           server: ${{ secrets.SFTP_SERVER }}
@@ -37,7 +51,7 @@ jobs:
           sftpArgs: '-o ConnectTimeout=5'
 
       - name: Deploy API to Strato via SFTP
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.6
+        uses: wlixcc/SFTP-Deploy-Action@a5ccb9c6211a94cc59404f0fdb2a9936a6dfee64 # v1.2.6
         with:
           username: ${{ secrets.SFTP_USERNAME }}
           server: ${{ secrets.SFTP_SERVER }}

@@ -12,13 +12,7 @@ import {
   ArrowRight 
 } from 'lucide-react';
 import { formatFileSize, getFileIcon } from '../utils.tsx';
-
-interface UploadedFile {
-  filepath: string;
-  filename: string;
-  size: number;
-  category: string;
-}
+import type { UploadedFile } from '../types';
 
 interface DocumentSourceScanProps {
   scanning: boolean;

@@ -3,6 +3,7 @@ import { ChevronDownIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Label } from "@/components/ui/label"
+import { parseDateString } from "@/lib/date"
 import {
   Popover,
   PopoverContent,
@@ -29,12 +30,6 @@ export function DatePicker({
   required = false
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false)
-  
-  // Helper function to parse date string without timezone issues
-  const parseDateString = (dateStr: string): Date => {
-    const [year, month, day] = dateStr.split('-').map(Number)
-    return new Date(year, month - 1, day) // month is 0-indexed
-  }
   
   const [date, setDate] = React.useState<Date | undefined>(
     value ? (typeof value === 'string' ? parseDateString(value) : value) : undefined

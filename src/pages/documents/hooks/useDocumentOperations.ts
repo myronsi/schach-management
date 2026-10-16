@@ -2,50 +2,39 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { httpUtils } from '@/lib/auth-utils';
-import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
+import { apiUrl } from '@/lib/api';
+import { describeApiError, postJson, readJson } from '@/lib/api-errors';
+import type { DocumentForm, UploadedFile } from '../types';
 
-const API = 'https://sc-laufenburg.de/api/documents.php';
+const API = apiUrl('documents.php');
 
-interface DocumentItem {
-  id: number;
-  name: string;
-  filename: string;
-  filepath: string;
-  category: string | null;
-  description: string | null;
-  file_size: number | null;
-  upload_date: string;
-  updated_at: string;
-  is_active: boolean;
+type DocumentPayload = DocumentForm & { expected_updated_at?: string };
+
+const postDocument = (payload: DocumentPayload) => postJson<{ id?: number }>(API, payload);
+
+interface UploadResponse {
+  success?: boolean;
+  files?: UploadedFile[];
+  uploaded_count?: number;
 }
 
-interface UploadedFile {
-  filepath: string;
-  filename: string;
-  size: number;
-  category: string;
+interface ScanResponse {
+  success?: boolean;
+  files?: UploadedFile[];
+  file_count?: number;
 }
-
-const postDocument = async (payload: any) => {
-  const res = await httpUtils.post(API, payload);
-  const data = await res.json();
-  if (!res.ok || data.success === false) {
-    throw markConflict(new Error(data.message || 'Failed to save'), data.conflict === true || res.status === 409);
-  }
-  return data;
-};
 
 export const useDocumentOperations = (onSuccessCallback?: () => void) => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [form, setForm] = useState<Partial<DocumentItem>>({});
+  const [form, setForm] = useState<DocumentForm>({});
   const [uploading, setUploading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [scanning, setScanning] = useState(false);
   const [scannedFiles, setScannedFiles] = useState<UploadedFile[]>([]);
   const [scanPath, setScanPath] = useState<string>('');
 
-  const createUpdate = useMutation<any, Error, any>({
+  const createUpdate = useMutation<Awaited<ReturnType<typeof postDocument>>, Error, DocumentPayload>({
     mutationFn: postDocument,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] });
@@ -59,19 +48,23 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
       }
     },
     onError: (error: Error) => {
-      toast({
-        title: isConflictError(error) ? 'Änderungskonflikt' : 'Fehler',
-        description: isConflictError(error) ? conflictDescription(error) : 'Konnte nicht speichern',
-        variant: 'destructive'
-      });
+      const { title, description } = describeApiError(error, 'Konnte nicht speichern');
+      toast({ title, description, variant: 'destructive' });
     }
   });
 
-  const save = () => {
-    const payload = { ...form } as any;
-    if (form.id) payload.id = form.id;
-    if (form.id && form.updated_at) payload.expected_updated_at = form.updated_at;
-    
+  /** Saves the form. `editing` is the document being edited, or null when creating a new one. */
+  const save = (editing: { id: number; updated_at?: string } | null) => {
+    const payload: DocumentPayload = { ...form };
+    if (editing) {
+      payload.id = editing.id;
+      const expected = editing.updated_at ?? form.updated_at;
+      if (expected) payload.expected_updated_at = expected;
+    } else {
+      // New documents get their id from the server.
+      delete payload.id;
+    }
+
     if (payload.file_size) payload.file_size = Number(payload.file_size);
     
     if (!payload.filename && payload.filepath) {
@@ -107,9 +100,9 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
         method: 'POST',
         body: formData
       });
-      const data = await res.json();
+      const data = await readJson<UploadResponse>(res);
 
-      if (data.success && data.files && data.files.length > 0) {
+      if (res.ok && data.success && data.files && data.files.length > 0) {
         setUploadedFiles(data.files);
         toast({
           title: 'Erfolg',
@@ -118,11 +111,11 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
       } else {
         toast({
           title: 'Fehler',
-          description: 'Keine Dateien hochgeladen',
+          description: data.message || 'Keine Dateien hochgeladen',
           variant: 'destructive'
         });
       }
-    } catch (err) {
+    } catch {
       toast({
         title: 'Fehler',
         description: 'Upload fehlgeschlagen',
@@ -162,10 +155,11 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
 
     setScanning(true);
     try {
-      const res = await fetch(`${API}?action=scan&path=${encodeURIComponent(scanPath)}`);
-      const data = await res.json();
+      // Scanning requires authentication.
+      const res = await httpUtils.authenticatedFetch(`${API}?action=scan&path=${encodeURIComponent(scanPath)}`);
+      const data = await readJson<ScanResponse>(res);
 
-      if (data.success && data.files) {
+      if (res.ok && data.success && data.files) {
         setScannedFiles(data.files);
         toast({
           title: 'Erfolg',
@@ -178,7 +172,7 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
           variant: 'destructive'
         });
       }
-    } catch (err) {
+    } catch {
       toast({
         title: 'Fehler',
         description: 'Scan fehlgeschlagen',

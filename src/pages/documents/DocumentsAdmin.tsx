@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { EditLockError, useEditLock } from '@/lib/editLock';
+import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { apiUrl } from '@/lib/api';
 import Navbar from '@/components/ui/navbar';
 import { useQuery } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -16,7 +17,7 @@ import { useDocumentDelete } from './hooks/useDocumentDelete';
 import type { DocumentItem } from './types';
 
 
-const API = 'https://sc-laufenburg.de/api/documents.php';
+const API = apiUrl('documents.php');
 
 const fetchDocuments = async (category?: string, search?: string): Promise<DocumentItem[]> => {
   let url = API;
@@ -79,7 +80,7 @@ const DocumentsAdmin: React.FC = () => {
     setScannedFiles,
   } = useDocumentOperations(handleSaveSuccess);
 
-  const { alertDialog, setAlertDialog, performDelete } = useDocumentDelete();
+  const { alertProps, performDelete } = useDocumentDelete();
 
   const filterOptions = [
     { value: 'all', label: 'Alle Dokumente' },
@@ -104,9 +105,7 @@ const DocumentsAdmin: React.FC = () => {
 
   const startCreate = () => {
     setEditing(null);
-    const maxId = (data || []).reduce((m, it) => Math.max(m, it.id || 0), 0);
-    const newId = maxId + 1 || 1;
-    setForm({ id: newId, is_active: true });
+    setForm({ is_active: true });
     setOpen(true);
   };
 
@@ -118,6 +117,7 @@ const DocumentsAdmin: React.FC = () => {
       setForm({ ...full });
       setOpen(true);
     } catch (err) {
+      if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
       void editLock.release();
       toast({ title: 'Fehler', description: 'Konnte Dokument nicht laden' });
@@ -223,19 +223,13 @@ const DocumentsAdmin: React.FC = () => {
             onScanPathChange={setScanPath}
             onScanDirectory={handleScanDirectory}
             onClearScanned={() => setScannedFiles([])}
-            onSubmit={save}
+            onSubmit={() => save(editing)}
             onCancel={handleCancelWizard}
           />
         </div>
       </div>
       
-      <AlertMessage
-        open={alertDialog.open}
-        onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        variant={alertDialog.variant}
-      />
+      <AlertMessage {...alertProps} />
 
       <DeleteDialog
         open={deleteDialog.open}

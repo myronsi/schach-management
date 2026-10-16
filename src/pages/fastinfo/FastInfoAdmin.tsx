@@ -11,12 +11,14 @@ import * as LucideIcons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { httpUtils } from '@/lib/auth-utils';
 import AuditMeta from '@/components/AuditMeta';
-import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
-import { EditLockError, useEditLock } from '@/lib/editLock';
+import { apiUrl } from '@/lib/api';
+import { deleteJson, describeApiError, postJson } from '@/lib/api-errors';
+import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { hasFieldChanges } from '@/lib/form';
+import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 
-const API = 'https://sc-laufenburg.de/api/fastinfo.php';
+const API = apiUrl('fastinfo.php');
 
 interface FastInfoItem {
   id: number;
@@ -34,14 +36,11 @@ const fetchFastInfo = async (): Promise<FastInfoItem[]> => {
   return res.json();
 };
 
-const postFastInfo = async (payload: any) => {
-  const res = await httpUtils.post(API, payload);
-  const data = await res.json();
-  if (!res.ok || data.success === false) {
-    throw markConflict(new Error(data.message || 'Failed to save'), data.conflict === true || res.status === 409);
-  }
-  return data;
-};
+type FastInfoItemPayload = Partial<FastInfoItem> & { expected_updated_at?: string };
+
+const postFastInfo = (payload: FastInfoItemPayload) => postJson<{ id?: number | string }>(API, payload);
+
+const FASTINFO_FIELDS: (keyof FastInfoItem)[] = ['icon', 'label', 'targetValue', 'delay'];
 
 const FastInfoAdmin: React.FC = () => {
   const queryClient = useQueryClient();
@@ -56,47 +55,8 @@ const FastInfoAdmin: React.FC = () => {
     queryFn: fetchFastInfo
   });
 
-  const [alertDialog, setAlertDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    variant: 'success' | 'error' | 'info';
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    variant: 'info'
-  });
-  
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    onConfirm: () => void;
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    onConfirm: () => {}
-  });
-
-  const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
-    setAlertDialog({
-      open: true,
-      title,
-      description,
-      variant
-    });
-  };
-
-  const showConfirm = (title: string, description: string, onConfirm: () => void) => {
-    setConfirmDialog({
-      open: true,
-      title,
-      description,
-      onConfirm
-    });
-  };
+  const { showAlert, alertProps } = useAlertDialog();
+  const { showConfirm, confirmProps } = useConfirmDialog();
 
   const requiredFieldsFilled = Boolean(
     form.icon && String(form.icon).trim() !== '' &&
@@ -104,16 +64,7 @@ const FastInfoAdmin: React.FC = () => {
     form.targetValue && form.targetValue > 0
   );
 
-  const hasChanges = () => {
-    if (!editing) return true;
-    const keys: (keyof FastInfoItem)[] = ['icon', 'label', 'targetValue', 'delay'];
-    for (const k of keys) {
-      const fVal = (form as any)[k] ?? '';
-      const eVal = (editing as any)[k] ?? '';
-      if (String(fVal) !== String(eVal)) return true;
-    }
-    return false;
-  };
+  const hasChanges = () => !editing || hasFieldChanges(form, editing, FASTINFO_FIELDS);
 
   const saveDisabled = !(requiredFieldsFilled && (editing ? hasChanges() : true));
 
@@ -123,7 +74,7 @@ const FastInfoAdmin: React.FC = () => {
     return res.json();
   };
 
-  const createUpdate = useMutation<any, Error, any>({
+  const createUpdate = useMutation<Awaited<ReturnType<typeof postFastInfo>>, Error, FastInfoItemPayload>({
     mutationFn: postFastInfo,
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['fastinfo'] });
@@ -134,23 +85,14 @@ const FastInfoAdmin: React.FC = () => {
       setForm({});
     },
     onError: (error: Error) => {
-      if (isConflictError(error)) {
-        toast({ title: 'Änderungskonflikt', description: conflictDescription(error), variant: 'destructive' });
-      } else {
-        toast({
-          title: 'Fehler',
-          description: 'Konnte nicht speichern',
-          variant: 'destructive'
-        });
-      }
+      const { title, description } = describeApiError(error, 'Konnte nicht speichern');
+      toast({ title, description, variant: 'destructive' });
     }
   });
 
   const startCreate = () => {
     setEditing(null);
-    const maxId = (data || []).reduce((m, it) => Math.max(m, it.id || 0), 0);
-    const newId = maxId + 1 || 1;
-    setForm({ id: newId, delay: 0, targetValue: 0 });
+    setForm({ delay: 0, targetValue: 0 });
     setOpen(true);
   };
 
@@ -162,15 +104,21 @@ const FastInfoAdmin: React.FC = () => {
       setForm({ ...full });
       setOpen(true);
     } catch (err) {
+      if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
       toast({ title: 'Fehler', description: 'Konnte Schnellinfo nicht laden' });
     }
   };
 
   const save = () => {
-    const payload = { ...form } as any;
-    if (form.id) payload.id = form.id;
-    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
+    const payload: FastInfoItemPayload = { ...form };
+    if (editing) {
+      payload.id = editing.id;
+      if (editing.updated_at) payload.expected_updated_at = editing.updated_at;
+    } else {
+      // New entries get their id from the server.
+      delete payload.id;
+    }
     
     if (payload.targetValue) payload.targetValue = Number(payload.targetValue);
     if (payload.delay !== undefined) payload.delay = Number(payload.delay);
@@ -184,18 +132,12 @@ const FastInfoAdmin: React.FC = () => {
       `Möchten Sie "${item.label}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.delete(API, { id: item.id, expected_updated_at: item.updated_at });
-          
-          if (res.ok) {
-            queryClient.invalidateQueries({ queryKey: ['fastinfo'] });
-            showAlert('Erfolg', 'Schnellinfo wurde erfolgreich gelöscht', 'success');
-          } else {
-            const data = await res.json().catch(() => ({}));
-            const conflict = isConflictError({ message: data.message, conflict: data.conflict }) || res.status === 409;
-            showAlert(conflict ? 'Änderungskonflikt' : 'Fehler', conflict ? conflictDescription(new Error(data.message || 'Dieser Eintrag wurde zwischenzeitlich geändert. Bitte neu laden.')) : 'Fehler beim Löschen', 'error');
-          }
+          await deleteJson(API, { id: item.id, expected_updated_at: item.updated_at });
+          queryClient.invalidateQueries({ queryKey: ['fastinfo'] });
+          showAlert('Erfolg', 'Schnellinfo wurde erfolgreich gelöscht', 'success');
         } catch (err) {
-          showAlert('Fehler', 'Netzwerkfehler', 'error');
+          const { title, description } = describeApiError(err, 'Fehler beim Löschen');
+          showAlert(title, description, 'error');
         }
       }
     );
@@ -362,20 +304,10 @@ const FastInfoAdmin: React.FC = () => {
         </div>
       </div>
       
-      <AlertMessage
-        open={alertDialog.open}
-        onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        variant={alertDialog.variant}
-      />
+      <AlertMessage {...alertProps} />
       
       <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={confirmDialog.onConfirm}
+        {...confirmProps}
         confirmText="Löschen"
         variant="destructive"
       />

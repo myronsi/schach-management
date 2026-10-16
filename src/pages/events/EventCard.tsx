@@ -6,15 +6,21 @@ import { Calendar, Clock, MapPin, Edit, Trash2 } from 'lucide-react';
 import { DatePicker } from '@/components/ui/date-picker';
 import { TypeSelector } from '@/components/ui/type-selector';
 import { Label } from '@/components/ui/label';
-import { httpUtils } from '@/lib/auth-utils';
 import type { Event } from './eventUtils';
-import { formatDate, getEventTypeColor, formatDateForAPI, parseDateString } from './eventUtils';
+import { formatDate, getEventTypeColor } from './eventUtils';
 import AuditMeta from '@/components/AuditMeta';
 import { useToast } from '@/hooks/use-toast';
-import { isConflictError, conflictDescription } from '@/lib/conflict';
-import { EditLockError, useEditLock } from '@/lib/editLock';
+import { apiUrl } from '@/lib/api';
+import { describeApiError, postJson } from '@/lib/api-errors';
+import { formatDateForAPI, parseDateString } from '@/lib/date';
+import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { hasFieldChanges } from '@/lib/form';
 
-const API = 'https://sc-laufenburg.de/api/events.php';
+const API = apiUrl('events.php');
+
+type EventEditPayload = Partial<Event> & { id: string; expected_updated_at?: string };
+
+const EVENT_FIELDS: (keyof Event)[] = ['title', 'date', 'time', 'location', 'description', 'type'];
 
 interface EventCardProps {
   event: Event;
@@ -36,27 +42,15 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
 
   const hasChanges = () => {
     if (!originalEvent) return false;
-    
-    const changes = {
-      title: editForm.title !== originalEvent.title,
-      date: editForm.date !== originalEvent.date,
-      time: editForm.time !== originalEvent.time,
-      location: editForm.location !== originalEvent.location,
-      description: editForm.description !== originalEvent.description,
-      type: editForm.type !== originalEvent.type,
-      is_recurring: Number(editForm.is_recurring ?? 0) !== Number(originalEvent.is_recurring ?? 0)
-    };
-    
-    const hasAnyChanges = Object.values(changes).some(changed => changed);
-    console.log('hasChanges check', { originalEvent, editForm, changes, hasAnyChanges });
-    
-    return hasAnyChanges;
+    return hasFieldChanges(editForm, originalEvent, EVENT_FIELDS)
+      || Number(editForm.is_recurring ?? 0) !== Number(originalEvent.is_recurring ?? 0);
   };
 
   const handleEdit = async (event: Event) => {
     try {
       await editLock.acquire(event.id);
     } catch (err) {
+      if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) {
         toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' });
         return;
@@ -72,7 +66,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
       try {
         setEditStartDate(parseDateString(parts[0]));
         setEditEndDate(parseDateString(parts[1]));
-      } catch (err) {
+      } catch {
         setEditStartDate(undefined);
         setEditEndDate(undefined);
       }
@@ -80,7 +74,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
       try {
         setEditStartDate(parseDateString(event.date));
         setEditEndDate(undefined);
-      } catch (err) {
+      } catch {
         setEditStartDate(undefined);
         setEditEndDate(undefined);
       }
@@ -91,14 +85,12 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
   };
 
   const handleSaveEdit = async () => {
-    console.log('handleSaveEdit called', { editingId, editForm, hasChanges: hasChanges() });
     if (editingId === null) {
-      console.log('No editingId, returning');
       return;
     }
-    
+
     try {
-      const payload: any = { 
+      const payload: EventEditPayload = { 
         id: String(editingId),
         expected_updated_at: originalEvent?.updated_at
       };
@@ -111,39 +103,18 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
       if (editForm.type !== undefined) payload.type = editForm.type;
       if (editForm.is_recurring !== undefined) payload.is_recurring = editForm.is_recurring;
       
-      console.log('Sending edit request', payload);
-      const res = await httpUtils.post(`${API}?action=edit`, payload);
-      console.log('Edit response', { ok: res.ok, status: res.status });
-      
-      if (res.ok) {
-        onUpdate();
-        await editLock.release();
-        setEditingId(null);
-        setOriginalEvent(null);
-        setEditForm({});
-        setEditStartDate(undefined);
-        setEditEndDate(undefined);
-      } else {
-        const result = await res.json().catch(() => ({}));
-        const error = new Error(result.message || 'Edit failed') as Error & { conflict?: boolean };
-        error.conflict = result.conflict === true || res.status === 409;
-        throw error;
-      }
+      await postJson(`${API}?action=edit`, payload, 'Konnte Ereignis nicht speichern');
+      onUpdate();
+      await editLock.release();
+      setEditingId(null);
+      setOriginalEvent(null);
+      setEditForm({});
+      setEditStartDate(undefined);
+      setEditEndDate(undefined);
     } catch (err) {
       console.error('Edit failed', err);
-      if (isConflictError(err)) {
-        toast({
-          title: 'Änderungskonflikt',
-          description: conflictDescription(err),
-          variant: 'destructive'
-        });
-      } else {
-        toast({
-          title: 'Fehler',
-          description: err instanceof Error ? err.message : 'Konnte Ereignis nicht speichern',
-          variant: 'destructive'
-        });
-      }
+      const { title, description } = describeApiError(err, err instanceof Error ? err.message : 'Konnte Ereignis nicht speichern');
+      toast({ title, description, variant: 'destructive' });
     }
   };
 

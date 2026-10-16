@@ -3,38 +3,44 @@
 require_once __DIR__ . '/auth-middleware.php';
 require_once __DIR__ . '/audit.php';
 
-$origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
-header('Access-Control-Allow-Origin: ' . $origin);
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS, DELETE, PUT, PATCH');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token');
-header('Access-Control-Allow-Credentials: false');
-header('Content-Type: application/json; charset=utf-8');
+sendCorsHeaders(['GET', 'POST']);
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit;
+const EVENT_READ_ACTIONS = ['list', 'get', 'upcoming', 'past', 'month'];
+const EVENT_FIELDS = ['title', 'date', 'time', 'location', 'description', 'type', 'is_recurring'];
+
+/** Event dates are "YYYY-MM-DD" or a range "YYYY-MM-DD:YYYY-MM-DD". */
+function isValidEventDate($value): bool {
+    if (!is_string($value)) return false;
+    $parts = explode(':', $value);
+    if (count($parts) > 2) return false;
+    foreach ($parts as $part) {
+        if (!isValidDate($part)) return false;
+    }
+    return count($parts) === 1 || $parts[0] <= $parts[1];
 }
 
-$env = [];
-$envFile = __DIR__ . '/.env';
-if (file_exists($envFile)) $env = parse_ini_file($envFile);
-
-$host = $env['host2'] ?? '';
-$user = $env['user2'] ?? '';
-$password = $env['password2'] ?? '';
-$database = $env['database2'] ?? '';
-$port = isset($env['port2']) ? (int)$env['port2'] : 3306;
+function normalizeEvent(array $event): array {
+    $title = trim((string)($event['title'] ?? ''));
+    $date = trim((string)($event['date'] ?? ''));
+    if ($title === '') jsonError('Missing title', 400);
+    if (!isValidEventDate($date)) jsonError('Ungültiges Datum: ' . $date, 400);
+    return [
+        'title' => $title,
+        'date' => $date,
+        'time' => isset($event['time']) && $event['time'] !== '' ? (string)$event['time'] : null,
+        'location' => isset($event['location']) && $event['location'] !== '' ? (string)$event['location'] : null,
+        'description' => isset($event['description']) && $event['description'] !== '' ? (string)$event['description'] : null,
+        'type' => isset($event['type']) && $event['type'] !== '' ? (string)$event['type'] : null,
+        'is_recurring' => !empty($event['is_recurring']) ? 1 : 0,
+    ];
+}
 
 try {
-    $dsn = "mysql:host=$host;dbname=$database;port=$port;charset=utf8mb4";
-    $pdo = new PDO($dsn, $user, $password, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
+    $pdo = contentDb();
 
     $method = $_SERVER['REQUEST_METHOD'];
     $action = $_GET['action'] ?? $_POST['action'] ?? 'list';
-    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $input = requestBody();
 
     $parseDateRange = function($dateStr) {
         if (!$dateStr) return [null, null];
@@ -47,9 +53,11 @@ try {
         return [trim($dateStr), null];
     };
 
-    if (isWriteOperation($action)) {
-        $user = requireAuthentication(['admin', 'chairman']);
-        error_log("Authenticated user '{$user['username']}' performing action: $action");
+    // Everything that is not an explicit read action needs an editor - including unknown actions.
+    $user = null;
+    if (!in_array($action, EVENT_READ_ACTIONS, true)) {
+        if ($method !== 'POST') jsonError('Method not allowed', 405);
+        $user = requireEditor();
     }
 
     switch ($action) {
@@ -115,49 +123,31 @@ try {
             break;
             
         case 'create':
-            $maxIdStmt = $pdo->query("SELECT MAX(id) FROM events");
-            $nextId = (int)$maxIdStmt->fetchColumn() + 1;
-
-            $stmt = $pdo->prepare('INSERT INTO events (id, title, date, time, location, description, type, is_recurring) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $events = (isset($input[0]) && array_keys($input) === range(0, count($input) - 1)) ? $input : [$input];
+            if (count($events) > 500) jsonError('Zu viele Termine auf einmal', 400);
+            $normalized = array_map(fn($e) => normalizeEvent(is_array($e) ? $e : []), $events);
 
             $createdIds = [];
-            if (isset($input[0]) && is_array($input)) {
-                foreach ($input as $event) {
+            $pdo->beginTransaction();
+            try {
+                $nextId = nextId($pdo, 'events');
+                $stmt = $pdo->prepare('INSERT INTO events (id, title, date, time, location, description, type, is_recurring, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                foreach ($normalized as $event) {
                     $newId = $nextId++;
-                    $dateVal = $event['date'] ?? '';
-                    $stmt->execute([
-                        $newId,
-                        $event['title'] ?? '',
-                        $dateVal ?? '',
-                        $event['time'] ?? null,
-                        $event['location'] ?? null,
-                        $event['description'] ?? null,
-                        $event['type'] ?? null,
-                        $event['is_recurring'] ?? 0
-                    ]);
+                    $stmt->execute([$newId, $event['title'], $event['date'], $event['time'], $event['location'], $event['description'], $event['type'], $event['is_recurring'], $user['username']]);
                     $createdIds[] = $newId;
-                    auditLog($pdo, $user, 'events', $newId, 'create', null, auditFetchRow($pdo, 'events', $newId));
                 }
-            } else {
-                $newId = $nextId++;
-                $dateVal = $input['date'] ?? '';
-                $stmt->execute([
-                    $newId,
-                    $input['title'] ?? '',
-                    $dateVal ?? '',
-                    $input['time'] ?? null,
-                    $input['location'] ?? null,
-                    $input['description'] ?? null,
-                    $input['type'] ?? null,
-                    $input['is_recurring'] ?? 0
-                ]);
-                $createdIds[] = $newId;
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                throw $e;
+            }
+            foreach ($createdIds as $newId) {
                 auditLog($pdo, $user, 'events', $newId, 'create', null, auditFetchRow($pdo, 'events', $newId));
             }
-
             echo json_encode(['success' => true, 'message' => 'Event(s) created', 'affected_ids' => $createdIds]);
             break;
-            
+
         case 'edit':
             $eventId = $input['id'] ?? null;
             $updates = $input['updates'] ?? $input;
@@ -175,14 +165,14 @@ try {
             $fields = [];
             $values = [];
             foreach ($updates as $key => $value) {
-                if (in_array($key, ['title', 'date', 'time', 'location', 'description', 'type', 'is_recurring']) && ($value !== null && $value !== '' || $key === 'is_recurring')) {
+                if (in_array($key, EVENT_FIELDS, true) && ($value !== null && $value !== '' || $key === 'is_recurring')) {
                     $fields[] = "$key = ?";
                     $values[] = $value;
                 }
             }
             
             if (!empty($fields)) {
-                auditCheckConflict($pdo, 'events', $eventId, $input['expected_updated_at'] ?? null);
+                guardWrite($pdo, 'events', $eventId, $user, $input['expected_updated_at'] ?? null);
                 $before = auditFetchRow($pdo, 'events', $eventId);
                 $fields[] = 'updated_by = ?';
                 $values[] = $user['username'];
@@ -207,7 +197,7 @@ try {
             $fields = [];
             $values = [];
             foreach ($updates as $key => $value) {
-                if ($value !== null && $value !== '' && in_array($key, ['time', 'location', 'description', 'type', 'is_recurring', 'title'])) {
+                if ($value !== null && $value !== '' && in_array($key, ['time', 'location', 'description', 'type', 'is_recurring', 'title'], true)) {
                     $fields[] = "$key = ?";
                     $values[] = $value;
                 }
@@ -233,6 +223,7 @@ try {
                 }
                 $beforeRows = $beforeStmt->fetchAll();
                 $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
+                    foreach ($affectedIds as $lockedId) assertNotLockedByOther($pdo, 'events', $lockedId, $user);
 
                 $fields[] = 'updated_by = ?';
                 $values[] = $user['username'];
@@ -263,7 +254,7 @@ try {
             $eventId = $input['id'] ?? '';
             
             if ($eventId) {
-                auditCheckConflict($pdo, 'events', $eventId, $input['expected_updated_at'] ?? null);
+                guardWrite($pdo, 'events', (int)$eventId, $user, $input['expected_updated_at'] ?? null);
                 $before = auditFetchRow($pdo, 'events', $eventId);
                 $stmt = $pdo->prepare('DELETE FROM events WHERE id = ?');
                 $stmt->execute([$eventId]);
@@ -290,6 +281,7 @@ try {
                     $beforeStmt->execute([$title, $currentDate]);
                     $beforeRows = $beforeStmt->fetchAll();
                     $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
+                    foreach ($affectedIds as $lockedId) assertNotLockedByOther($pdo, 'events', $lockedId, $user);
                     $stmt = $pdo->prepare('DELETE FROM events WHERE title = ? AND date >= ?');
                     $stmt->execute([$title, $currentDate]);
                     $deleted = $stmt->rowCount();
@@ -310,6 +302,7 @@ try {
                     $beforeStmt->execute([$title, $date]);
                     $beforeRows = $beforeStmt->fetchAll();
                     $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
+                    foreach ($affectedIds as $lockedId) assertNotLockedByOther($pdo, 'events', $lockedId, $user);
                     $stmt = $pdo->prepare('DELETE FROM events WHERE title = ? AND date = ?');
                     $stmt->execute([$title, $date]);
                     $deleted = $stmt->rowCount();
@@ -329,6 +322,7 @@ try {
                     $beforeStmt->execute([$date]);
                     $beforeRows = $beforeStmt->fetchAll();
                     $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
+                    foreach ($affectedIds as $lockedId) assertNotLockedByOther($pdo, 'events', $lockedId, $user);
                     $stmt = $pdo->prepare('DELETE FROM events WHERE date = ?');
                     $stmt->execute([$date]);
                     $deleted = $stmt->rowCount();
@@ -352,6 +346,7 @@ try {
                     $beforeStmt->execute([$startDate, $endDate]);
                     $beforeRows = $beforeStmt->fetchAll();
                     $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
+                    foreach ($affectedIds as $lockedId) assertNotLockedByOther($pdo, 'events', $lockedId, $user);
                     $stmt = $pdo->prepare('DELETE FROM events WHERE date >= ? AND date <= ?');
                     $stmt->execute([$startDate, $endDate]);
                     $deleted = $stmt->rowCount();
@@ -374,9 +369,6 @@ try {
     }
 
 } catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'DB connection error: ' . $e->getMessage()]);
-    exit;
+    error_log('events.php: ' . $e->getMessage());
+    jsonError('Datenbankfehler', 500);
 }
-
-?>

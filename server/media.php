@@ -2,38 +2,25 @@
 
 require_once __DIR__ . '/auth-middleware.php';
 require_once __DIR__ . '/audit.php';
+require_once __DIR__ . '/files.php';
 
-$origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
-header('Access-Control-Allow-Origin: ' . $origin);
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS, DELETE, PUT, PATCH');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token');
-header('Access-Control-Allow-Credentials: false');
-header('Content-Type: application/json; charset=utf-8');
+sendCorsHeaders(['GET', 'POST', 'DELETE']);
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit;
+const MEDIA_COLUMNS = 'id, src, title, description, children, updated_at, updated_by';
+// No SVG: it can carry scripts and would be served from the site's own origin.
+const MEDIA_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'pdf'];
+
+$uploadBaseDir = dirname(__DIR__) . '/photos';
+
+$pdo = contentDb();
+$method = $_SERVER['REQUEST_METHOD'];
+$action = (string)($_GET['action'] ?? '');
+$user = null;
+if ($method !== 'GET' || $action === 'scan') {
+    $user = requireEditor();
 }
 
-$env = [];
-$envFile = __DIR__ . '/.env';
-if (file_exists($envFile)) $env = parse_ini_file($envFile);
-
-
-$uploadBaseDir = __DIR__ . '/../photos/';
-
-function removeMediaFile(?string $relativePath, string $uploadBaseDir): bool {
-    if (!$relativePath) return false;
-    $path = trim($relativePath);
-    if (preg_match('#^https?://#i', $path)) return false;
-    $path = ltrim($path, '/');
-    if (str_starts_with($path, 'photos/')) $path = substr($path, strlen('photos/'));
-    if ($path === '' || str_contains($path, '..')) return false;
-    $fullPath = rtrim($uploadBaseDir, '/') . '/' . $path;
-    if (!is_file($fullPath)) return false;
-    return @unlink($fullPath);
-}
-
+/** All file paths (src + children) referenced by a media row. */
 function mediaReferencedPaths(array $row): array {
     $paths = [];
     if (!empty($row['src'])) $paths[] = $row['src'];
@@ -42,302 +29,136 @@ function mediaReferencedPaths(array $row): array {
         $decoded = json_decode($children, true);
         $children = is_array($decoded) ? $decoded : [];
     }
-    if (is_array($children)) {
-        foreach ($children as $child) {
-            if (is_array($child) && !empty($child['src'])) $paths[] = $child['src'];
-            elseif (is_string($child) && $child !== '') $paths[] = $child;
-        }
+    foreach ((array)$children as $child) {
+        if (is_array($child) && !empty($child['src'])) $paths[] = $child['src'];
+        elseif (is_string($child) && $child !== '') $paths[] = $child;
     }
     return array_values(array_unique($paths));
 }
 
-
-if (!is_dir($uploadBaseDir)) {
-    mkdir($uploadBaseDir, 0755, true);
+/** True when another media row still references $path. */
+function mediaPathReferencedElsewhere(PDO $pdo, string $path, int $exceptId): bool {
+    $stmt = $pdo->prepare('SELECT id FROM media WHERE id <> ? AND (src = ? OR children LIKE ?) LIMIT 1');
+    $stmt->execute([$exceptId, $path, '%' . addcslashes(json_encode($path, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), '%_\\') . '%']);
+    return (bool)$stmt->fetch();
 }
 
-function listFilesInDirectory($directory, $relativePath = '') {
-    $files = [];
-    
-    if (!is_dir($directory)) {
-        return $files;
+/** Validates the children payload and returns it as JSON. */
+function normalizeChildren($children): string {
+    if ($children === null || $children === '') return '[]';
+    if (is_string($children)) {
+        $children = json_decode($children, true);
+        if (json_last_error() !== JSON_ERROR_NONE) jsonError('Invalid JSON in children field', 400);
     }
-    
-    $items = scandir($directory);
-    foreach ($items as $item) {
-        if ($item === '.' || $item === '..') continue;
-        
-        $fullPath = $directory . '/' . $item;
-        $relPath = $relativePath ? $relativePath . '/' . $item : $item;
-        
-        if (is_dir($fullPath)) {
-            $subFiles = listFilesInDirectory($fullPath, $relPath);
-            $files = array_merge($files, $subFiles);
-        } else {
-            $files[] = $relPath;
+    if (!is_array($children)) jsonError('Invalid JSON in children field', 400);
+    foreach ($children as $child) {
+        $src = is_array($child) ? ($child['src'] ?? '') : $child;
+        if (!is_string($src) || ($src !== '' && sanitizeUrl($src) === '')) {
+            jsonError('Ungültiger Pfad in children', 400);
         }
     }
-    
-    return $files;
+    return json_encode($children, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 }
 
-$host = $env['host2'] ?? '';
-$user = $env['user2'] ?? '';
-$password = $env['password2'] ?? '';
-$database = $env['database2'] ?? '';
-$port = isset($env['port2']) ? (int)$env['port2'] : 3306;
-
-$input = $_GET;
-$id = $input['id'] ?? null;
-
-try {
-    $dsn = "mysql:host=$host;dbname=$database;port=$port;charset=utf8mb4";
-    $pdo = new PDO($dsn, $user, $password, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
-
-    $method = $_SERVER['REQUEST_METHOD'];
-
-    if ($method === 'POST' || $method === 'DELETE' || $method === 'PUT' || $method === 'PATCH') {
-        $user = requireAuthentication(['admin', 'chairman']);
-        error_log("Authenticated user '{$user['username']}' performing $method operation on media");
+if ($method === 'GET') {
+    if ($action === 'scan') {
+        $title = trim((string)($_GET['title'] ?? ''), '/');
+        if ($title === '') jsonError('Title is required for scanning', 400);
+        $targetDir = resolveUploadDir($uploadBaseDir, $title);
+        if (!is_dir($targetDir)) {
+            jsonResponse(['success' => true, 'files' => [], 'scanned_path' => '/photos/' . $title, 'message' => 'Directory does not exist yet']);
+        }
+        $files = array_map(fn($file) => $file['path'], listFilesRecursive($targetDir, $title));
+        jsonResponse(['success' => true, 'files' => $files, 'scanned_path' => '/photos/' . $title, 'file_count' => count($files)]);
     }
 
-    if ($method === 'GET') {
-        $action = $input['action'] ?? '';
-        
-        if ($action === 'scan') {
-            $title = $input['title'] ?? '';
-            if (!$title) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'message' => 'Title is required for scanning']);
-                exit;
-            }
-            
-            $targetDir = rtrim($uploadBaseDir, '/') . '/' . $title;
-            
-            if (!is_dir($targetDir)) {
-                echo json_encode([
-                    'success' => true, 
-                    'files' => [], 
-                    'scanned_path' => '/photos/' . $title,
-                    'message' => 'Directory does not exist yet'
-                ]);
-                exit;
-            }
-            
-            $files = listFilesInDirectory($targetDir, $title);
-            echo json_encode([
-                'success' => true, 
-                'files' => $files, 
-                'scanned_path' => '/photos/' . $title,
-                'file_count' => count($files)
-            ]);
-            exit;
-        }
-        
-        if ($id) {
-            $stmt = $pdo->prepare('SELECT id, src, title, description, children, updated_at, updated_by FROM media WHERE id = ? LIMIT 1');
-            $stmt->execute([$id]);
-            $row = $stmt->fetch();
-            if (!$row) {
-                http_response_code(404);
-                echo json_encode(['success' => false, 'message' => 'Not found']);
-                exit;
-            }
-            echo json_encode($row);
-            exit;
-        }
-
-        $stmt = $pdo->query('SELECT id, src, title, description, children, updated_at, updated_by FROM media ORDER BY id DESC');
-        $rows = $stmt->fetchAll();
-        echo json_encode($rows);
-        exit;
-    }
-
-    if ($method === 'POST') {
-        if (!empty($_FILES)) {
-            $action = $_POST['action'] ?? '';
-            if ($action === 'upload') {
-                $title = $_POST['title'] ?? '';
-                if (!$title) {
-                    http_response_code(400);
-                    echo json_encode(['success' => false, 'message' => 'Title is required for upload']);
-                    exit;
-                }
-                
-                $targetDir = rtrim($uploadBaseDir, '/') . '/' . $title;
-                if (!is_dir($targetDir)) {
-                    if (!mkdir($targetDir, 0755, true)) {
-                        http_response_code(500);
-                        echo json_encode([
-                            'success' => false, 
-                            'message' => 'Could not create upload directory',
-                            'details' => "Failed to create directory: $targetDir"
-                        ]);
-                        exit;
-                    }
-                }
-                
-                $allowedExtensions = array('jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'pdf');
-                
-                $uploadedFiles = [];
-                $errors = [];
-                
-                foreach ($_FILES as $file) {
-                    if ($file['error'] === UPLOAD_ERR_OK) {
-                        $fileTmpPath = $file['tmp_name'];
-                        $fileName = basename($file['name']);
-                        $fileNameCmps = explode(".", $fileName);
-                        $fileExtension = strtolower(end($fileNameCmps));
-                        
-                        if (!in_array($fileExtension, $allowedExtensions)) {
-                            $errors[] = "File type not allowed: $fileName (.$fileExtension)";
-                            continue;
-                        }
-                        
-                        $newFileName = md5(time() . $fileName . rand()) . '.' . $fileExtension;
-                        $destPath = $targetDir . '/' . $newFileName;
-                        
-                        if (move_uploaded_file($fileTmpPath, $destPath)) {
-                            $relativePath = $title . '/' . $newFileName;
-                            $uploadedFiles[] = $relativePath;
-                        } else {
-                            $errors[] = "Failed to move uploaded file: $fileName";
-                        }
-                    } else {
-                        $errorMsg = 'Unknown error';
-                        switch ($file['error']) {
-                            case UPLOAD_ERR_INI_SIZE:
-                            case UPLOAD_ERR_FORM_SIZE:
-                                $errorMsg = 'File too large';
-                                break;
-                            case UPLOAD_ERR_PARTIAL:
-                                $errorMsg = 'Partial upload';
-                                break;
-                            case UPLOAD_ERR_NO_FILE:
-                                $errorMsg = 'No file uploaded';
-                                break;
-                        }
-                        $errors[] = "Upload error for file: " . ($file['name'] ?? 'unknown') . " ($errorMsg)";
-                    }
-                }
-                
-                echo json_encode([
-                    'success' => true, 
-                    'files' => $uploadedFiles,
-                    'errors' => $errors,
-                    'uploaded_count' => count($uploadedFiles),
-                    'target_path' => '/photos/' . $title
-                ]);
-                exit;
-            }
-        }
-        
-        $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true);
-        if (!is_array($data)) $data = $_POST;
-
-        $id = isset($data['id']) && $data['id'] !== '' ? (int)$data['id'] : null;
-        $src = trim($data['src'] ?? '');
-        $title = trim($data['title'] ?? '');
-        $description = trim($data['description'] ?? '');
-        $children = $data['children'] ?? '[]';
-
-        if (is_array($children)) {
-            $children = json_encode($children, JSON_UNESCAPED_SLASHES);
-        } else if (is_string($children)) {
-            $decoded = json_decode($children);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'message' => 'Invalid JSON in children field']);
-                exit;
-            }
-            $children = json_encode($decoded, JSON_UNESCAPED_SLASHES);
-        }
-
-        if ($src === '' || $title === '') {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing required fields: src and title']);
-            exit;
-        }
-
-        if ($id) {
-            $check = $pdo->prepare('SELECT id FROM media WHERE id = ? LIMIT 1');
-            $check->execute([$id]);
-            $exists = (bool)$check->fetch();
-
-            if ($exists) {
-                auditCheckConflict($pdo, 'media', $id, $data['expected_updated_at'] ?? null);
-                $before = auditFetchRow($pdo, 'media', $id);
-                $stmt = $pdo->prepare('UPDATE media SET src = ?, title = ?, description = ?, children = ?, updated_by = ? WHERE id = ?');
-                $stmt->execute([$src, $title, $description, $children, $user['username'], $id]);
-                auditLog($pdo, $user, 'media', $id, 'update', $before, auditFetchRow($pdo, 'media', $id));
-                echo json_encode(['success' => true, 'message' => 'Updated', 'id' => $id]);
-                exit;
-            } else {
-                $stmt = $pdo->prepare('INSERT INTO media (id, src, title, description, children) VALUES (?, ?, ?, ?, ?)');
-                $stmt->execute([$id, $src, $title, $description, $children]);
-                auditLog($pdo, $user, 'media', $id, 'create', null, auditFetchRow($pdo, 'media', $id));
-                echo json_encode(['success' => true, 'message' => 'Created', 'id' => $id]);
-                exit;
-            }
-        } else {
-            $stmt = $pdo->prepare('INSERT INTO media (src, title, description, children) VALUES (?, ?, ?, ?)');
-            $stmt->execute([$src, $title, $description, $children]);
-            $newId = (int)$pdo->lastInsertId();
-            auditLog($pdo, $user, 'media', $newId, 'create', null, auditFetchRow($pdo, 'media', $newId));
-            echo json_encode(['success' => true, 'message' => 'Created', 'id' => $newId]);
-            exit;
-        }
-    }
-
-    if ($method === 'DELETE') {
-        $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true);
-        if (!is_array($data)) $data = $_GET;
-
-        $id = isset($data['id']) ? (int)$data['id'] : null;
-
-        if (!$id) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing id for deletion']);
-            exit;
-        }
-
-        auditCheckConflict($pdo, 'media', $id, $data['expected_updated_at'] ?? null);
-        $before = auditFetchRow($pdo, 'media', $id);
-        if (!$before) {
-            http_response_code(404);
-            echo json_encode(['success' => false, 'message' => 'Media not found']);
-            exit;
-        }
-        $filePaths = mediaReferencedPaths($before);
-        $removedFiles = [];
-        foreach ($filePaths as $filePath) {
-            $removedFiles[$filePath] = removeMediaFile($filePath, $uploadBaseDir);
-        }
-        $stmt = $pdo->prepare('DELETE FROM media WHERE id = ?');
+    $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+    if ($id) {
+        $stmt = $pdo->prepare('SELECT ' . MEDIA_COLUMNS . ' FROM media WHERE id = ? LIMIT 1');
         $stmt->execute([$id]);
-        if ($stmt->rowCount()) {
-            auditLog($pdo, $user, 'media', $id, 'delete', [
-                'media' => $before,
-                'file_paths' => $filePaths,
-                'files_removed' => $removedFiles
-            ], null);
-        }
-        echo json_encode(['success' => true, 'message' => 'Deleted', 'id' => $id, 'file_paths' => $filePaths, 'files_removed' => $removedFiles]);
-        exit;
+        $row = $stmt->fetch();
+        if (!$row) jsonError('Not found', 404);
+        jsonResponse($row);
     }
-
-    http_response_code(405);
-    echo json_encode(['success' => false, 'message' => 'Method not allowed']);
-
-} catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'DB connection error: ' . $e->getMessage()]);
+    $rows = $pdo->query('SELECT ' . MEDIA_COLUMNS . ' FROM media ORDER BY id DESC')->fetchAll();
+    echo json_encode($rows, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-?>
+if ($method === 'POST' && !empty($_FILES) && ($_POST['action'] ?? '') === 'upload') {
+    $title = trim((string)($_POST['title'] ?? ''), '/');
+    if ($title === '') jsonError('Title is required for upload', 400);
+    $targetDir = resolveUploadDir($uploadBaseDir, $title);
+    [$stored, $errors] = storeUploadedFiles($targetDir, MEDIA_EXTENSIONS, function (string $base, string $extension) {
+        return bin2hex(random_bytes(16)) . '.' . $extension;
+    });
+    $files = array_map(fn($file) => $title . '/' . $file['name'], $stored);
+    jsonResponse([
+        'success' => true,
+        'files' => $files,
+        'errors' => $errors,
+        'uploaded_count' => count($files),
+        'target_path' => '/photos/' . $title,
+    ]);
+}
+
+if ($method === 'POST') {
+    $data = requestBody();
+    $id = isset($data['id']) && $data['id'] !== '' && $data['id'] !== null ? (int)$data['id'] : null;
+    $src = sanitizeUrl($data['src'] ?? '');
+    $title = trim((string)($data['title'] ?? ''));
+    $description = trim((string)($data['description'] ?? ''));
+    $children = normalizeChildren($data['children'] ?? '[]');
+
+    if ($src === '' || $title === '') {
+        jsonError('Missing required fields: src and title', 400);
+    }
+
+    if ($id !== null) {
+        $before = auditFetchRow($pdo, 'media', $id);
+        if (!$before) jsonError('Media not found', 404);
+        guardWrite($pdo, 'media', $id, $user, $data['expected_updated_at'] ?? null);
+        $stmt = $pdo->prepare('UPDATE media SET src = ?, title = ?, description = ?, children = ?, updated_by = ? WHERE id = ?');
+        $stmt->execute([$src, $title, $description, $children, $user['username'], $id]);
+        auditLog($pdo, $user, 'media', $id, 'update', $before, auditFetchRow($pdo, 'media', $id));
+        jsonResponse(['success' => true, 'message' => 'Updated', 'id' => $id]);
+    }
+
+    $newId = insertWithNextId($pdo, 'media', function (int $newId) use ($pdo, $src, $title, $description, $children, $user) {
+        $stmt = $pdo->prepare('INSERT INTO media (id, src, title, description, children, updated_by) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$newId, $src, $title, $description, $children, $user['username']]);
+    });
+    auditLog($pdo, $user, 'media', $newId, 'create', null, auditFetchRow($pdo, 'media', $newId));
+    jsonResponse(['success' => true, 'message' => 'Created', 'id' => $newId]);
+}
+
+if ($method === 'DELETE') {
+    $data = requestBody();
+    if (!$data) $data = $_GET;
+    $id = isset($data['id']) ? (int)$data['id'] : 0;
+    if (!$id) jsonError('Missing id for deletion', 400);
+
+    $before = auditFetchRow($pdo, 'media', $id);
+    if (!$before) jsonError('Media not found', 404);
+    guardWrite($pdo, 'media', $id, $user, $data['expected_updated_at'] ?? null);
+
+    $stmt = $pdo->prepare('DELETE FROM media WHERE id = ?');
+    $stmt->execute([$id]);
+    $filePaths = mediaReferencedPaths($before);
+    $removedFiles = [];
+    if ($stmt->rowCount()) {
+        // Delete files only after the row is gone, and only if nothing else still uses them.
+        foreach ($filePaths as $filePath) {
+            $removedFiles[$filePath] = !mediaPathReferencedElsewhere($pdo, $filePath, $id)
+                && removeFileBelow($filePath, 'photos', $uploadBaseDir);
+        }
+        auditLog($pdo, $user, 'media', $id, 'delete', [
+            'media' => $before,
+            'file_paths' => $filePaths,
+            'files_removed' => $removedFiles,
+        ], null);
+    }
+    jsonResponse(['success' => true, 'message' => 'Deleted', 'id' => $id, 'file_paths' => $filePaths, 'files_removed' => $removedFiles]);
+}
+
+jsonError('Method not allowed', 405);

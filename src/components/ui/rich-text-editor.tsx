@@ -1,4 +1,5 @@
 import React from 'react';
+import DOMPurify from 'dompurify';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +14,46 @@ export interface RichTextEditorProps {
   placeholder?: string;
   forceLTR?: boolean;
 }
+
+// Links opened in a new tab must not get access to window.opener.
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node instanceof Element && node.tagName === 'A' && node.getAttribute('target') === '_blank') {
+    node.setAttribute('rel', 'noopener noreferrer');
+  }
+});
+
+/** Sanitizes HTML before it is written into the editable DOM (prevents stored XSS). */
+const sanitizeHtml = (html: string): string =>
+  DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+
+/** Only web, mail, phone, site-relative (/...) and in-page anchor (#...) links are allowed. */
+const SAFE_URL_PATTERN = /^(?:https?:\/\/|mailto:|tel:|\/(?!\/)|#)/i;
+
+const hasControlCharacters = (value: string) =>
+  Array.from(value).some((ch) => {
+    const code = ch.charCodeAt(0);
+    return code < 0x20 || code === 0x7f;
+  });
+
+const isSafeLinkUrl = (url: string): boolean => {
+  const trimmed = url.trim();
+  if (!trimmed || hasControlCharacters(trimmed)) return false;
+  return SAFE_URL_PATTERN.test(trimmed);
+};
+
+/** Applies href/target and a safe rel to a link element. */
+const applyLinkAttributes = (link: HTMLAnchorElement, href: string, target: string, classes: string) => {
+  link.setAttribute('href', href);
+  link.setAttribute('target', target);
+  if (target === '_blank') {
+    link.setAttribute('rel', 'noopener noreferrer');
+  } else {
+    link.removeAttribute('rel');
+  }
+  if (classes) {
+    link.setAttribute('class', classes);
+  }
+};
 
 const stripBidiMarksFromElementPreserveCaret = (el: HTMLElement) => {
   if (!el) return;
@@ -86,6 +127,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const [linkTarget, setLinkTarget] = React.useState('_blank');
   const [linkClasses, setLinkClasses] = React.useState('underline hover:text-club-accent hover:underline');
   const [savedSelection, setSavedSelection] = React.useState<Range | null>(null);
+  const linkUrlInvalid = linkUrl.trim() !== '' && !isSafeLinkUrl(linkUrl);
 
   const updateSelection = React.useCallback(() => {
     const sel = document.getSelection();
@@ -265,7 +307,8 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   };
 
   const insertLink = () => {
-    if (!linkUrl || !linkText) return;
+    if (!linkUrl || !linkText || !isSafeLinkUrl(linkUrl)) return;
+    const href = linkUrl.trim();
     
     const el = contentRef.current;
     if (!el) return;
@@ -295,19 +338,11 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     }
     
     if (linkElement) {
-      linkElement.setAttribute('href', linkUrl);
+      applyLinkAttributes(linkElement, href, linkTarget, linkClasses);
       linkElement.textContent = linkText;
-      linkElement.setAttribute('target', linkTarget);
-      if (linkClasses) {
-        linkElement.setAttribute('class', linkClasses);
-      }
     } else {
       const link = document.createElement('a');
-      link.setAttribute('href', linkUrl);
-      link.setAttribute('target', linkTarget);
-      if (linkClasses) {
-        link.setAttribute('class', linkClasses);
-      }
+      applyLinkAttributes(link, href, linkTarget, linkClasses);
       link.textContent = linkText;
       
       range.deleteContents();
@@ -350,7 +385,9 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     const el = contentRef.current;
     if (!el) return;
     if (el.innerHTML === (value || '')) return;
-    el.innerHTML = value || '';
+    const safeHtml = sanitizeHtml(value || '');
+    if (el.innerHTML === safeHtml) return;
+    el.innerHTML = safeHtml;
   }, [value]);
 
   return (
@@ -410,7 +447,14 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                 placeholder="https://example.com"
                 value={linkUrl}
                 onChange={(e) => setLinkUrl(e.target.value)}
+                aria-invalid={linkUrlInvalid}
+                className={linkUrlInvalid ? 'border-red-500' : undefined}
               />
+              {linkUrlInvalid && (
+                <p className="text-xs text-red-600">
+                  Ungültige URL. Erlaubt sind http(s)://, mailto:, tel:, relative Pfade (/…) und Anker (#…).
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="link-target">Ziel</Label>
@@ -449,7 +493,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
               <Button variant="outline" onClick={() => setLinkDialogOpen(false)}>
                 Abbrechen
               </Button>
-              <Button onClick={insertLink} disabled={!linkUrl || !linkText}>
+              <Button onClick={insertLink} disabled={!linkUrl || !linkText || linkUrlInvalid}>
                 {savedSelection ? 'Aktualisieren' : 'Einfügen'}
               </Button>
             </div>

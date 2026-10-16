@@ -3,34 +3,27 @@
 require_once __DIR__ . '/auth-middleware.php';
 require_once __DIR__ . '/audit.php';
 
-$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+sendCorsHeaders(['GET', 'POST', 'PATCH']);
 
-header('Vary: Origin');
-header('Access-Control-Allow-Methods: GET, POST, PATCH, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token');
-header('Content-Type: application/json; charset=utf-8');
+const APPLICATION_RATE_LIMIT = 5;          // submissions per IP ...
+const APPLICATION_RATE_WINDOW = 60 * 60;   // ... per hour
+const APPLICATION_MAX_FIELD_LENGTH = 255;
 
-if ($origin !== '') {
-    header('Access-Control-Allow-Origin: ' . $origin);
+/** Basic IBAN check (format + ISO 13616 mod-97 checksum). */
+function validIban(string $iban): bool {
+    $iban = strtoupper(preg_replace('/\s+/', '', $iban));
+    if (!preg_match('/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/', $iban)) return false;
+    $rearranged = substr($iban, 4) . substr($iban, 0, 4);
+    $numeric = '';
+    foreach (str_split($rearranged) as $char) {
+        $numeric .= ctype_alpha($char) ? (string)(ord($char) - 55) : $char;
+    }
+    $remainder = 0;
+    foreach (str_split($numeric, 7) as $chunk) {
+        $remainder = (int)(($remainder . $chunk) % 97);
+    }
+    return $remainder === 1;
 }
-
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
-
-$env = [];
-$envFile = __DIR__ . '/.env';
-
-if (file_exists($envFile)) {
-    $env = parse_ini_file($envFile);
-}
-
-$host = $env['host2'] ?? '';
-$user = $env['user2'] ?? '';
-$password = $env['password2'] ?? '';
-$database = $env['database2'] ?? '';
-$port = isset($env['port2']) ? (int)$env['port2'] : 3306;
 
 function validSignature($value): bool
 {
@@ -64,22 +57,7 @@ function validSignature($value): bool
 
 try {
 
-    $dsn = sprintf(
-        'mysql:host=%s;dbname=%s;port=%d;charset=utf8mb4',
-        $host,
-        $database,
-        $port
-    );
-
-    $pdo = new PDO(
-        $dsn,
-        $user,
-        $password,
-        [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        ]
-    );
+    $pdo = contentDb();
 
     $method = $_SERVER['REQUEST_METHOD'];
 
@@ -141,6 +119,31 @@ try {
 
                 exit;
             }
+        }
+
+        // Honeypot: real users never fill the hidden "website" field.
+        if (!empty($data['website'])) {
+            jsonResponse(['success' => true, 'id' => 0]);
+        }
+
+        $rateKey = 'membership:' . clientIp();
+        if (rateLimitCount($rateKey, APPLICATION_RATE_WINDOW) >= APPLICATION_RATE_LIMIT) {
+            jsonError('Zu viele Anträge. Bitte später erneut versuchen.', 429);
+        }
+
+        foreach ($data as $field => $value) {
+            if (is_string($value) && !in_array($field, ['signature', 'guardian_signature', 'debit_signature'], true)
+                && mb_strlen($value) > APPLICATION_MAX_FIELD_LENGTH) {
+                jsonError('Eingabe zu lang: ' . $field, 400);
+            }
+        }
+
+        if (!isValidDate((string)$data['birth_date']) || (string)$data['birth_date'] > date('Y-m-d')) {
+            jsonError('Ungültiges Geburtsdatum', 400);
+        }
+
+        if (!isValidDate((string)$data['application_date'])) {
+            jsonError('Ungültiges Antragsdatum', 400);
         }
 
         if (
@@ -293,6 +296,10 @@ try {
                 }
             }
 
+            if (!validIban((string)$data['iban'])) {
+                jsonError('Ungültige IBAN', 400);
+            }
+
             if (
                 !validSignature(
                     $data['debit_signature'] ?? ''
@@ -409,6 +416,8 @@ try {
             )
         ]);
 
+        rateLimitHit($rateKey, APPLICATION_RATE_WINDOW);
+
         echo json_encode([
             'success' => true,
             'id' => (int)$pdo->lastInsertId()
@@ -523,4 +532,3 @@ try {
         'message' => 'DB connection error'
     ]);
 }
-?>

@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/common.php';
+
 function auditLog(PDO $pdo, ?array $user, string $entity, $entityId, string $action, $old = null, $new = null): void {
     try {
         $stmt = $pdo->prepare('INSERT INTO audit_log (username, entity, entity_id, action, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)');
@@ -16,28 +18,35 @@ function auditLog(PDO $pdo, ?array $user, string $entity, $entityId, string $act
     }
 }
 
-function auditCheckConflict(PDO $pdo, string $table, $id, ?string $expected): void {
-    if ($expected === null || $expected === '') return;
+/**
+ * Optimistic concurrency check. Responds 409 with conflict=true when the row changed since
+ * the client loaded it. $table must be a hard-coded table name, never user input.
+ */
+function auditCheckConflict(PDO $pdo, string $table, $id, $expected): void {
+    if (!is_string($expected) || $expected === '') return;
     $stmt = $pdo->prepare("SELECT updated_at, updated_by FROM `$table` WHERE id = ? LIMIT 1");
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     if ($row && $row['updated_at'] !== $expected) {
-        http_response_code(409);
-        echo json_encode([
-            'success' => false,
-            'conflict' => true,
-            'message' => 'Dieser Eintrag wurde zwischenzeitlich geändert von '
+        jsonError(
+            'Dieser Eintrag wurde zwischenzeitlich geändert von '
                 . ($row['updated_by'] ?: 'unbekannt') . ' (' . $row['updated_at'] . '). Bitte neu laden.',
-            'updated_at' => $row['updated_at'],
-            'updated_by' => $row['updated_by'],
-        ]);
-        exit;
+            409,
+            ['conflict' => true, 'updated_at' => $row['updated_at'], 'updated_by' => $row['updated_by']]
+        );
     }
 }
 
+/** $table must be a hard-coded table name, never user input. */
 function auditFetchRow(PDO $pdo, string $table, $id): ?array {
     $stmt = $pdo->prepare("SELECT * FROM `$table` WHERE id = ? LIMIT 1");
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ?: null;
+}
+
+/** Lock + conflict checks every update/delete of an existing row has to pass. */
+function guardWrite(PDO $pdo, string $table, $id, array $user, $expectedUpdatedAt): void {
+    assertNotLockedByOther($pdo, $table, $id, $user);
+    auditCheckConflict($pdo, $table, $id, $expectedUpdatedAt);
 }

@@ -20,31 +20,14 @@ import { DocumentSourceUpload } from './wizard-steps/DocumentSourceUpload';
 import { DocumentSourceScan } from './wizard-steps/DocumentSourceScan';
 import { DocumentSourceManual } from './wizard-steps/DocumentSourceManual';
 import { DocumentReview } from './wizard-steps/DocumentReview';
-
-interface DocumentItem {
-  id?: number;
-  name: string;
-  filename: string;
-  filepath: string;
-  category: string | null;
-  description: string | null;
-  file_size: number | null;
-  is_active: boolean;
-}
-
-interface UploadedFile {
-  filepath: string;
-  filename: string;
-  size: number;
-  category: string;
-}
+import type { DocumentForm, DocumentItem, UploadedFile } from './types';
 
 interface DocumentWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editing: DocumentItem | null;
-  form: Partial<DocumentItem>;
-  onFormChange: (updates: Partial<DocumentItem>) => void;
+  form: DocumentForm;
+  onFormChange: (updates: DocumentForm) => void;
   uploading: boolean;
   uploadedFiles: UploadedFile[];
   scanning: boolean;

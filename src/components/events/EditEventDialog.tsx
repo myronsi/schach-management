@@ -11,6 +11,9 @@ import { TypeSelector } from '@/components/ui/type-selector';
 import { DatePicker } from '@/components/ui/date-picker';
 import { TimeInput } from '@/components/ui/time-input';
 import { httpUtils } from '@/lib/auth-utils';
+import { apiUrl } from '@/lib/api';
+import { readJson } from '@/lib/api-errors';
+import { formatDateForAPI, parseDateString } from '@/lib/date';
 
 type FormData = {
   title: string;
@@ -32,7 +35,22 @@ interface Event {
   is_recurring?: number;
 }
 
-const API = 'https://sc-laufenburg.de/api/events.php';
+const API = apiUrl('events.php');
+
+interface EditByTitleResponse {
+  success?: boolean;
+  message?: string;
+  error?: string;
+  updated?: number;
+}
+
+interface EventUpdates {
+  time?: string;
+  location?: string;
+  description?: string;
+  type?: string;
+  is_recurring?: number;
+}
 
 interface EditEventDialogProps {
   onSuccess?: () => void;
@@ -41,7 +59,7 @@ interface EditEventDialogProps {
 
 const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose }) => {
   const { register, handleSubmit, setValue, watch } = useForm<FormData>();
-  const [response, setResponse] = useState<any>(null);
+  const [response, setResponse] = useState<EditByTitleResponse | null>(null);
   const [status, setStatus] = useState('');
   const [events, setEvents] = useState<Event[]>([]);
   const [titleOpen, setTitleOpen] = useState(false);
@@ -89,8 +107,8 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
       // Check if event has date range
       if (existingEvent.date && existingEvent.date.includes(':')) {
         const [start, end] = existingEvent.date.split(':');
-        setSelectedStartDate(new Date(start));
-        setSelectedEndDate(new Date(end));
+        setSelectedStartDate(parseDateString(start));
+        setSelectedEndDate(parseDateString(end));
       }
     }
   };
@@ -109,23 +127,22 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
     setIsSubmitting(true);
     
     try {
-      const updates: any = {};
+      const updates: EventUpdates = {};
       if (data.time) updates.time = data.time;
       if (data.location) updates.location = data.location;
       if (data.description) updates.description = data.description;
       if (selectedType) updates.type = selectedType;
       updates.is_recurring = isRecurring ? 1 : 0;
 
-      const payload: any = { title: data.title, updates: updates };
+      const payload: { title?: string; updates: EventUpdates; start_date?: string; end_date?: string } = { title: data.title, updates: updates };
       if (selectedStartDate && selectedEndDate) {
-        const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        payload.start_date = fmt(selectedStartDate);
-        payload.end_date = fmt(selectedEndDate);
+        payload.start_date = formatDateForAPI(selectedStartDate);
+        payload.end_date = formatDateForAPI(selectedEndDate);
       }
 
       const res = await httpUtils.post(`${API}?action=editByTitle`, payload);
-      const result = await res.json();
-      if (res.ok) {
+      const result = await readJson<EditByTitleResponse>(res);
+      if (res.ok && result.success !== false) {
         setResponse(result);
         setStatus('success');
         
@@ -137,9 +154,9 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
         
       } else {
         setStatus('error');
-        setResponse(result);
+        setResponse({ ...result, error: result.error || result.message || 'Fehler beim Speichern' });
       }
-    } catch (err) {
+    } catch {
       setStatus('error');
       setResponse({ error: 'Netzwerkfehler' });
     } finally {

@@ -12,12 +12,14 @@ import { Edit, Plus, Trash2 } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
-import { httpUtils } from '@/lib/auth-utils';
 import AuditMeta from '@/components/AuditMeta';
-import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
-import { EditLockError, useEditLock } from '@/lib/editLock';
+import { apiUrl } from '@/lib/api';
+import { deleteJson, describeApiError, postJson } from '@/lib/api-errors';
+import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { hasFieldChanges } from '@/lib/form';
+import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 
-const API = 'https://sc-laufenburg.de/api/teams.php';
+const API = apiUrl('teams.php');
 
 interface TeamItem {
   id: number;
@@ -57,14 +59,12 @@ const fetchDescription = async (): Promise<TeamDescription> => {
   return res.json();
 };
 
-const postTeam = async (payload: any) => {
-  const res = await httpUtils.post(API, payload);
-  const data = await res.json();
-  if (!res.ok || data.success === false) {
-    throw markConflict(new Error(data.message || 'Failed to save'), data.conflict === true || res.status === 409);
-  }
-  return data;
-};
+type TeamItemPayload = Partial<TeamItem> & { expected_updated_at?: string };
+type TeamDescriptionPayload = TeamDescription & { expected_updated_at?: string };
+
+const postTeam = (payload: TeamItemPayload | TeamDescriptionPayload) => postJson<{ id?: number | string }>(API, payload);
+
+const TEAM_FIELDS: (keyof TeamItem)[] = ['name', 'league', 'image', 'url', 'captain', 'contact', 'nextMatch', 'venue', 'notes', 'founded'];
 
 const TeamsAdmin: React.FC = () => {
   const queryClient = useQueryClient();
@@ -86,47 +86,8 @@ const TeamsAdmin: React.FC = () => {
   const [squadPlayers, setSquadPlayers] = useState<string[]>([]);
   const [newPlayerName, setNewPlayerName] = useState<string>('');
   
-  const [alertDialog, setAlertDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    variant: 'success' | 'error' | 'info';
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    variant: 'info'
-  });
-  
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    onConfirm: () => void;
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    onConfirm: () => {}
-  });
-
-  const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
-    setAlertDialog({
-      open: true,
-      title,
-      description,
-      variant
-    });
-  };
-
-  const showConfirm = (title: string, description: string, onConfirm: () => void) => {
-    setConfirmDialog({
-      open: true,
-      title,
-      description,
-      onConfirm
-    });
-  };
+  const { showAlert, alertProps } = useAlertDialog();
+  const { showConfirm, confirmProps } = useConfirmDialog();
 
   const requiredFieldsFilled = Boolean(
     form.name && String(form.name).trim() !== '' &&
@@ -135,12 +96,7 @@ const TeamsAdmin: React.FC = () => {
 
   const hasChanges = () => {
     if (!editing) return true;
-    const keys: (keyof TeamItem)[] = ['name', 'league', 'image', 'url', 'captain', 'contact', 'nextMatch', 'venue', 'notes', 'founded'];
-    for (const k of keys) {
-      const fVal = (form as any)[k] ?? '';
-      const eVal = (editing as any)[k] ?? '';
-      if (String(fVal) !== String(eVal)) return true;
-    }
+    if (hasFieldChanges(form, editing, TEAM_FIELDS)) return true;
     
     // Check if squadPlayers has changed
     try {
@@ -182,7 +138,7 @@ const TeamsAdmin: React.FC = () => {
     return res.json();
   };
 
-  const createUpdate = useMutation<any, Error, any>({
+  const createUpdate = useMutation<Awaited<ReturnType<typeof postTeam>>, Error, TeamItemPayload>({
     mutationFn: postTeam,
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['teams'] });
@@ -193,19 +149,12 @@ const TeamsAdmin: React.FC = () => {
       setForm({});
     },
     onError: (error: Error) => {
-      if (isConflictError(error)) {
-        toast({ title: 'Änderungskonflikt', description: conflictDescription(error), variant: 'destructive' });
-      } else {
-        toast({
-          title: 'Fehler',
-          description: 'Konnte nicht speichern',
-          variant: 'destructive'
-        });
-      }
+      const { title, description } = describeApiError(error, 'Konnte nicht speichern');
+      toast({ title, description, variant: 'destructive' });
     }
   });
 
-  const updateDescription = useMutation<any, Error, any>({
+  const updateDescription = useMutation<Awaited<ReturnType<typeof postTeam>>, Error, TeamDescriptionPayload>({
     mutationFn: postTeam,
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['description'] });
@@ -214,15 +163,8 @@ const TeamsAdmin: React.FC = () => {
       setDescriptionOpen(false);
     },
     onError: (error: Error) => {
-      if (isConflictError(error)) {
-        toast({ title: 'Änderungskonflikt', description: conflictDescription(error), variant: 'destructive' });
-      } else {
-        toast({
-          title: 'Fehler',
-          description: 'Konnte Beschreibung nicht speichern',
-          variant: 'destructive'
-        });
-      }
+      const { title, description } = describeApiError(error, 'Konnte Beschreibung nicht speichern');
+      toast({ title, description, variant: 'destructive' });
     }
   });
 
@@ -230,6 +172,7 @@ const TeamsAdmin: React.FC = () => {
     try {
       await editLock.acquire(0);
     } catch (err) {
+      if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
       toast({ title: 'Fehler', description: 'Bearbeitung konnte nicht gestartet werden', variant: 'destructive' });
       return;
@@ -250,16 +193,15 @@ const TeamsAdmin: React.FC = () => {
   };
 
   const saveDescription = () => {
-    const payload = { ...descForm } as any;
+    // The description is the special row with id 0, which is always sent explicitly.
+    const payload: TeamDescriptionPayload = { ...descForm, id: 0 };
     if (description?.updated_at) payload.expected_updated_at = description.updated_at;
     updateDescription.mutate(payload);
   };
 
   const startCreate = () => {
     setEditing(null);
-    const maxId = (data || []).reduce((m, it) => Math.max(m, it.id || 0), 0);
-    const newId = maxId + 1 || 1;
-    setForm({ id: newId, record: '{}', squad: '[]', founded: new Date().getFullYear() });
+    setForm({ record: '{}', squad: '[]', founded: new Date().getFullYear() });
     
     setRecordW(0);
     setRecordD(0);
@@ -298,15 +240,21 @@ const TeamsAdmin: React.FC = () => {
       
       setOpen(true);
     } catch (err) {
+      if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
       toast({ title: 'Fehler', description: 'Konnte Team nicht laden' });
     }
   };
 
   const save = () => {
-    const payload = { ...form } as any;
-    if (form.id) payload.id = form.id;
-    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
+    const payload: TeamItemPayload = { ...form };
+    if (editing) {
+      payload.id = editing.id;
+      if (editing.updated_at) payload.expected_updated_at = editing.updated_at;
+    } else {
+      // New entries get their id from the server.
+      delete payload.id;
+    }
     
     payload.record = JSON.stringify({
       w: recordW || 0,
@@ -336,18 +284,12 @@ const TeamsAdmin: React.FC = () => {
       `Möchten Sie das Team "${item.name}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.delete(API, { id: item.id, expected_updated_at: item.updated_at });
-          
-          if (res.ok) {
-            queryClient.invalidateQueries({ queryKey: ['teams'] });
-            showAlert('Erfolg', 'Team wurde erfolgreich gelöscht', 'success');
-          } else {
-            const data = await res.json().catch(() => ({}));
-            const conflict = isConflictError({ message: data.message, conflict: data.conflict }) || res.status === 409;
-            showAlert(conflict ? 'Änderungskonflikt' : 'Fehler', conflict ? conflictDescription(new Error(data.message || 'Dieser Eintrag wurde zwischenzeitlich geändert. Bitte neu laden.')) : 'Fehler beim Löschen', 'error');
-          }
+          await deleteJson(API, { id: item.id, expected_updated_at: item.updated_at });
+          queryClient.invalidateQueries({ queryKey: ['teams'] });
+          showAlert('Erfolg', 'Team wurde erfolgreich gelöscht', 'success');
         } catch (err) {
-          showAlert('Fehler', 'Netzwerkfehler', 'error');
+          const { title, description } = describeApiError(err, 'Fehler beim Löschen');
+          showAlert(title, description, 'error');
         }
       }
     );
@@ -678,20 +620,10 @@ const TeamsAdmin: React.FC = () => {
         </div>
       </div>
       
-      <AlertMessage
-        open={alertDialog.open}
-        onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        variant={alertDialog.variant}
-      />
+      <AlertMessage {...alertProps} />
       
       <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={confirmDialog.onConfirm}
+        {...confirmProps}
         confirmText="Löschen"
         variant="destructive"
       />

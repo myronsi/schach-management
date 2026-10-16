@@ -1,7 +1,7 @@
 import type { MediaItem } from './types';
 import { API } from './constants';
 import { httpUtils } from '@/lib/auth-utils';
-import { markConflict } from '@/lib/conflict';
+import { deleteJson, postJson, readJson } from '@/lib/api-errors';
 
 export const fetchMedia = async (): Promise<MediaItem[]> => {
   const res = await fetch(API);
@@ -15,23 +15,33 @@ export const fetchMediaById = async (id: number): Promise<MediaItem> => {
   return res.json();
 };
 
-export const postMedia = async (payload: any) => {
-  const res = await httpUtils.post(API, payload);
-  const data = await res.json();
-  if (!res.ok || data.success === false) {
-    throw markConflict(new Error(data.message || 'Failed to save'), data.conflict === true || res.status === 409);
-  }
-  return data;
+export type MediaPayload = Omit<Partial<MediaItem>, 'children'> & {
+  children?: string;
+  expected_updated_at?: string;
 };
 
+export const postMedia = (payload: MediaPayload) => postJson<{ id?: number }>(API, payload);
+
 export const deleteMedia = async (id: number, expected_updated_at?: string) => {
-  const res = await httpUtils.delete(API, { id, expected_updated_at });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw markConflict(new Error(data.message || 'Failed to delete media'), data.conflict === true || res.status === 409);
-  }
+  await deleteJson(API, { id, expected_updated_at }, 'Failed to delete media');
   return true;
 };
+
+export interface UploadResponse {
+  success?: boolean;
+  message?: string;
+  files?: string[];
+  uploaded_count?: number;
+  target_path?: string;
+  errors?: string[];
+}
+
+export interface ScanResponse {
+  success?: boolean;
+  message?: string;
+  files?: string[];
+  scanned_path?: string;
+}
 
 export const uploadFiles = async (title: string, files: FileList) => {
   const formData = new FormData();
@@ -47,10 +57,15 @@ export const uploadFiles = async (title: string, files: FileList) => {
     body: formData
   });
 
-  return res.json();
+  const data = await readJson<UploadResponse>(res);
+  if (!res.ok && data.success === undefined) data.success = false;
+  return data;
 };
 
+/** Lists files already present in the gallery folder. Requires authentication. */
 export const scanDirectory = async (title: string) => {
-  const res = await fetch(`${API}?action=scan&title=${encodeURIComponent(title)}`);
-  return res.json();
+  const res = await httpUtils.authenticatedFetch(`${API}?action=scan&title=${encodeURIComponent(title)}`);
+  const data = await readJson<ScanResponse>(res);
+  if (!res.ok && data.success === undefined) data.success = false;
+  return data;
 };

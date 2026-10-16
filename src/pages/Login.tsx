@@ -18,11 +18,7 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
-interface LoginProps {
-  onLogin?: () => void;
-}
-
-const Login: React.FC<LoginProps> = ({ onLogin }) => {
+const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -40,13 +36,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
   useEffect(() => {
     if (isAuthenticated) {
-      if (onLogin) {
-        onLogin();
-      } else {
-        navigate('/dashboard');
-      }
+      navigate('/dashboard');
     }
-  }, [isAuthenticated, navigate, onLogin]);
+  }, [isAuthenticated, navigate]);
 
   const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true);
@@ -54,17 +46,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
     try {
       const result = await login(data.username, data.password);
-      if (result && result.success) {
+      if (result.success) {
         reset();
-        if (onLogin) {
-          onLogin();
-        } else {
-          navigate('/dashboard');
-        }
+        navigate('/dashboard');
       } else {
-        setLoginError(result?.message || 'Ungültiger Benutzername oder Passwort');
+        setLoginError(result.message || 'Ungültiger Benutzername oder Passwort');
       }
-    } catch (err) {
+    } catch {
       setLoginError('Netzwerkfehler');
     } finally {
       setIsLoading(false);

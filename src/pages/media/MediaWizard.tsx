@@ -15,7 +15,7 @@ import { Upload, FileSearch, FolderInput, ChevronRight, ChevronLeft } from 'luci
 import type { MediaItem, ChildItem } from './types';
 import { ChildrenManager } from './ChildrenManager';
 import { stripBaseUrl, buildFullSrc } from './utils';
-import { BASE_URL } from './constants';
+import { BASE_URL, MEDIA_UPLOAD_ACCEPT } from './constants';
 
 interface MediaWizardProps {
   open: boolean;
@@ -260,10 +260,14 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
                 <Input
                   type="file"
                   multiple
+                  accept={MEDIA_UPLOAD_ACCEPT}
                   onChange={onFileUpload}
                   disabled={uploading}
                   className="max-w-md mx-auto"
                 />
+                <p className="text-xs text-gray-500 mt-2">
+                  Erlaubt: JPG, PNG, GIF, WebP, MP4, WebM, PDF (keine SVG-Dateien)
+                </p>
                 {uploading && (
                   <p className="text-sm text-gray-500 mt-4">Hochladen...</p>
                 )}

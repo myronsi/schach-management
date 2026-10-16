@@ -5,20 +5,8 @@ import { FileText, File, Folder, HardDrive, ExternalLink, Edit, Trash2, EyeOff }
 import { cn } from '@/lib/utils';
 import { formatFileSize, getCategoryLabel } from '../utils.tsx';
 import AuditMeta from '@/components/AuditMeta';
-
-interface DocumentItem {
-  id: number;
-  name: string;
-  filename: string;
-  filepath: string;
-  category: string | null;
-  description: string | null;
-  file_size: number | null;
-  upload_date: string;
-  updated_at: string;
-  updated_by?: string;
-  is_active: boolean;
-}
+import { siteUrl } from '@/lib/api';
+import type { DocumentItem } from '../types';
 
 interface DocumentCardProps {
   item: DocumentItem;
@@ -34,8 +22,8 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
   const handleOpen = () => {
     const url = item.filepath && String(item.filepath).match(/^https?:\/\//)
       ? String(item.filepath)
-      : `https://sc-laufenburg.de/${String(item.filepath ?? '').replace(/^\/+/, '')}`;
-    window.open(url, '_blank');
+      : siteUrl(String(item.filepath ?? ''));
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   return (

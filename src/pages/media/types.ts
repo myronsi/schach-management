@@ -13,17 +13,3 @@ export interface MediaItem {
   updated_at?: string;
   updated_by?: string;
 }
-
-export interface AlertDialogState {
-  open: boolean;
-  title: string;
-  description: string;
-  variant: 'success' | 'error' | 'info';
-}
-
-export interface ConfirmDialogState {
-  open: boolean;
-  title: string;
-  description: string;
-  onConfirm: () => void;
-}
