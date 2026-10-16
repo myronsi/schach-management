@@ -67,7 +67,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${savedToken}`
+            'Authorization': `Bearer ${savedToken}`,
+            'X-Auth-Token': savedToken
           },
           body: JSON.stringify({ 
             action: 'validate',
@@ -99,8 +100,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             authToken.remove();
             setIsAuthenticated(false);
             setUsername(null);
-          setRole(null);
+            setRole(null);
           }
+        } else if (res.status === 401 || res.status === 403) {
+          authToken.remove();
+          setIsAuthenticated(false);
+          setUsername(null);
+          setRole(null);
         } else {
           console.error('Server error during auth check:', res.status, res.statusText);
         }
@@ -158,7 +164,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${savedToken}`
+            'Authorization': `Bearer ${savedToken}`,
+            'X-Auth-Token': savedToken
           },
           body: JSON.stringify({ 
             action: 'logout',
