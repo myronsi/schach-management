@@ -13,16 +13,37 @@ import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { httpUtils } from '@/lib/auth-utils';
 import { useAuth } from '@/hooks/useAuth';
+import { apiUrl } from '@/lib/api';
+import { deleteJson, describeApiError, postJson } from '@/lib/api-errors';
+import { hasFieldChanges } from '@/lib/form';
+import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 
-const API = 'https://sc-laufenburg.de/api/authm.php';
+const API = apiUrl('authm.php');
+
+type PasswordStatus = 'changed' | 'unchanged';
 
 interface User {
   username: string;
   status: string;
-  password_status: string;
+  password_status: PasswordStatus;
   first_name?: string;
   last_name?: string;
 }
+
+interface UserPayload {
+  username?: string;
+  status: string;
+  password_status: PasswordStatus;
+  is_update: boolean;
+  password?: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+const USER_FIELDS: (keyof User)[] = ['username', 'status', 'password_status', 'first_name', 'last_name'];
+
+const toPasswordStatus = (value: string | undefined): PasswordStatus =>
+  value === 'changed' ? 'changed' : 'unchanged';
 
 const fetchUsers = async (): Promise<User[]> => {
   const res = await httpUtils.authenticatedFetch(API);
@@ -35,19 +56,18 @@ const fetchUsers = async (): Promise<User[]> => {
   return res.json();
 };
 
-const postUser = async (payload: any) => {
-  const res = await httpUtils.post(API, payload);
-  const data = await res.json();
-  if (!res.ok || data.success === false) {
-    throw new Error(data.message || 'Failed to save');
-  }
-  return data;
-};
+const postUser = (payload: UserPayload) => postJson(API, payload, 'Failed to save');
 
 const UsersAdmin: React.FC = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { role } = useAuth();
+  const { role, username: currentUsername } = useAuth();
+  const isChairman = role === 'chairman';
+  // Mirrors the server rules: only a chairman may modify/delete a chairman account,
+  // nobody may delete their own account or change their own status.
+  const isSelf = (user: User) => !!currentUsername && user.username === currentUsername;
+  const canEditUser = (user: User) => isChairman || user.status !== 'chairman';
+  const canDeleteUser = (user: User) => !isSelf(user) && canEditUser(user);
   const { data, isLoading, error } = useQuery<User[], Error>({ 
     queryKey: ['users'], 
     queryFn: fetchUsers 
@@ -58,47 +78,8 @@ const UsersAdmin: React.FC = () => {
   const [form, setForm] = useState<Partial<User & { password: string }>>({});
   const [showPassword, setShowPassword] = useState(false);
   
-  const [alertDialog, setAlertDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    variant: 'success' | 'error' | 'info';
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    variant: 'info'
-  });
-  
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    onConfirm: () => void;
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    onConfirm: () => {}
-  });
-
-  const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
-    setAlertDialog({
-      open: true,
-      title,
-      description,
-      variant
-    });
-  };
-
-  const showConfirm = (title: string, description: string, onConfirm: () => void) => {
-    setConfirmDialog({
-      open: true,
-      title,
-      description,
-      onConfirm
-    });
-  };
+  const { showAlert, alertProps } = useAlertDialog();
+  const { showConfirm, confirmProps } = useConfirmDialog();
 
   const requiredFieldsFilled = Boolean(
     form.username && String(form.username).trim() !== '' &&
@@ -108,19 +89,14 @@ const UsersAdmin: React.FC = () => {
 
   const hasChanges = () => {
     if (!editing) return true;
-    const keys: (keyof User)[] = ['username', 'status', 'password_status', 'first_name', 'last_name'];
-    for (const k of keys) {
-      const fVal = (form as any)[k] ?? '';
-      const eVal = (editing as any)[k] ?? '';
-      if (String(fVal) !== String(eVal)) return true;
-    }
+    if (hasFieldChanges(form, editing, USER_FIELDS)) return true;
     if (form.password && String(form.password).trim() !== '') return true;
     return false;
   };
 
   const saveDisabled = !(requiredFieldsFilled && (editing ? hasChanges() : true));
 
-  const createUpdate = useMutation<any, Error, any>({
+  const createUpdate = useMutation<Awaited<ReturnType<typeof postUser>>, Error, UserPayload>({
     mutationFn: postUser,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -164,6 +140,7 @@ const UsersAdmin: React.FC = () => {
   };
 
   const startEdit = (user: User) => {
+    if (!canEditUser(user)) return;
     setEditing(user);
     setForm({ 
       ...user,
@@ -176,13 +153,15 @@ const UsersAdmin: React.FC = () => {
   };
 
   const save = () => {
-    const payload: any = {
+    const payload: UserPayload = {
       username: form.username,
-      status: form.status || 'user',
-      password_status: form.password_status || 'unchanged',
+      // Your own status cannot be changed (the server rejects it), so always send the stored value.
+      status: editing && isSelf(editing) ? editing.status : (form.status || 'user'),
+      password_status: toPasswordStatus(form.password_status),
       is_update: !!editing
     };
-    
+
+    // Passwords are sent exactly as typed (the server no longer trims them).
     if (form.password && String(form.password).trim() !== '') {
       payload.password = form.password;
     }
@@ -202,16 +181,12 @@ const UsersAdmin: React.FC = () => {
       `Möchten Sie den Benutzer "${user.username}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.delete(API, { username: user.username });
-          
-          if (res.ok) {
-            queryClient.invalidateQueries({ queryKey: ['users'] });
-            showAlert('Erfolg', 'Benutzer wurde erfolgreich gelöscht', 'success');
-          } else {
-            showAlert('Fehler', 'Fehler beim Löschen', 'error');
-          }
+          await deleteJson(API, { username: user.username }, 'Fehler beim Löschen');
+          queryClient.invalidateQueries({ queryKey: ['users'] });
+          showAlert('Erfolg', 'Benutzer wurde erfolgreich gelöscht', 'success');
         } catch (err) {
-          showAlert('Fehler', 'Netzwerkfehler', 'error');
+          const { title, description } = describeApiError(err, err instanceof Error ? err.message : 'Fehler beim Löschen');
+          showAlert(title, description, 'error');
         }
       }
     );
@@ -305,7 +280,10 @@ const UsersAdmin: React.FC = () => {
                   <CardContent className="p-4 sm:p-6">
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
                       <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-2">{user.username}</h3>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                          {user.username}
+                          {isSelf(user) && <span className="ml-2 text-sm font-normal text-gray-500">(Sie)</span>}
+                        </h3>
                         <div className="flex flex-wrap gap-2 mb-2">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeColor(user.status)}`}>
                             {getStatusLabel(user.status)}
@@ -317,24 +295,28 @@ const UsersAdmin: React.FC = () => {
                       </div>
                       
                       <div className="flex flex-col sm:flex-row gap-2 sm:ml-4 w-full sm:w-auto">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => startEdit(user)}
-                          className="flex items-center justify-center gap-1 w-full sm:w-auto"
-                        >
-                          <Edit className="w-4 h-4" />
-                          <span className="sm:inline">Bearbeiten</span>
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDelete(user)}
-                          className="flex items-center justify-center gap-1 text-red-600 hover:text-red-700 w-full sm:w-auto"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          <span className="sm:inline">Löschen</span>
-                        </Button>
+                        {canEditUser(user) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => startEdit(user)}
+                            className="flex items-center justify-center gap-1 w-full sm:w-auto"
+                          >
+                            <Edit className="w-4 h-4" />
+                            <span className="sm:inline">Bearbeiten</span>
+                          </Button>
+                        )}
+                        {canDeleteUser(user) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDelete(user)}
+                            className="flex items-center justify-center gap-1 text-red-600 hover:text-red-700 w-full sm:w-auto"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            <span className="sm:inline">Löschen</span>
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -428,25 +410,31 @@ const UsersAdmin: React.FC = () => {
                     value={form.status || 'user'}
                     onValueChange={(value) => setForm({ ...form, status: value })}
                   >
-                    <SelectTrigger id="user-status" disabled={role !== 'chairman' && form.status === 'chairman'}>
+                    <SelectTrigger
+                      id="user-status"
+                      disabled={(!isChairman && form.status === 'chairman') || (!!editing && isSelf(editing))}
+                    >
                       <SelectValue placeholder="Status auswählen" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="admin">Administrator</SelectItem>
-                      {(role === 'chairman' || form.status === 'chairman') && (
+                      {(isChairman || form.status === 'chairman') && (
                         <SelectItem value="chairman">Vorsitzender</SelectItem>
                       )}
                       <SelectItem value="user">Benutzer</SelectItem>
                       <SelectItem value="blocked">Blockiert</SelectItem>
                     </SelectContent>
                   </Select>
+                  {editing && isSelf(editing) && (
+                    <p className="text-xs text-gray-500">Sie können Ihren eigenen Status nicht ändern</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="user-password-status">Passwort Status</Label>
                   <Select
                     value={form.password_status || 'unchanged'}
-                    onValueChange={(value) => setForm({ ...form, password_status: value })}
+                    onValueChange={(value) => setForm({ ...form, password_status: toPasswordStatus(value) })}
                   >
                     <SelectTrigger id="user-password-status">
                       <SelectValue placeholder="Passwort Status auswählen" />
@@ -475,20 +463,10 @@ const UsersAdmin: React.FC = () => {
         </div>
       </div>
 
-      <AlertMessage
-        open={alertDialog.open}
-        onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        variant={alertDialog.variant}
-      />
+      <AlertMessage {...alertProps} />
 
       <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={confirmDialog.onConfirm}
+        {...confirmProps}
         confirmText="Löschen"
         variant="destructive"
       />

@@ -12,16 +12,10 @@ import {
   Info 
 } from 'lucide-react';
 import { formatFileSize, getFileIcon } from '../utils.tsx';
-
-interface UploadedFile {
-  filepath: string;
-  filename: string;
-  size: number;
-  category: string;
-}
+import type { DocumentForm, UploadedFile } from '../types';
 
 interface DocumentSourceUploadProps {
-  form: any;
+  form: DocumentForm;
   uploading: boolean;
   uploadedFiles: UploadedFile[];
   onFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;

@@ -13,12 +13,15 @@ import { useToast } from '@/hooks/use-toast';
 import { Edit, Plus, Trash2, RefreshCcw } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { httpUtils } from '@/lib/auth-utils';
 import AuditMeta from '@/components/AuditMeta';
-import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
-import { EditLockError, useEditLock } from '@/lib/editLock';
+import { apiUrl } from '@/lib/api';
+import { ApiError, deleteJson, describeApiError, postJson } from '@/lib/api-errors';
+import { formatDateForAPI, formatDateTimeForAPI, parseDateString, todayLocal } from '@/lib/date';
+import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { hasFieldChanges } from '@/lib/form';
+import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 
-const API = 'https://sc-laufenburg.de/api/news.php';
+const API = apiUrl('news.php');
 
 interface NewsItem {
   id: number;
@@ -39,14 +42,14 @@ const fetchNews = async (): Promise<NewsItem[]> => {
   return res.json();
 };
 
-const postNews = async (payload: any) => {
-  const res = await httpUtils.post(API, payload);
-  const data = await res.json();
-  if (!res.ok || data.success === false) {
-    throw markConflict(new Error(data.message || 'Failed to save'), data.conflict === true || res.status === 409);
-  }
-  return data;
-};
+type NewsPayload = Partial<NewsItem> & { expected_updated_at?: string };
+
+const postNews = (payload: NewsPayload) => postJson<{ id?: number }>(API, payload);
+
+const NEWS_FIELDS: (keyof NewsItem)[] = ['slug', 'title', 'description', 'content', 'date', 'image', 'link'];
+
+const isSlugExistsError = (error: Error) =>
+  (error instanceof ApiError && error.code === 'slug_exists') || error.message === 'Slug already exists';
 
 const NewsAdmin: React.FC = () => {
   const queryClient = useQueryClient();
@@ -58,48 +61,8 @@ const NewsAdmin: React.FC = () => {
   const [form, setForm] = useState<Partial<NewsItem>>({});
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   
-  const [alertDialog, setAlertDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    variant: 'success' | 'error' | 'info';
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    variant: 'info'
-  });
-  
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    onConfirm: () => void;
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    onConfirm: () => {}
-  });
-
-  const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
-    setAlertDialog({
-      open: true,
-      title,
-      description,
-      variant
-    });
-  };
-
-  const showConfirm = (title: string, description: string, onConfirm: () => void) => {
-    setConfirmDialog({
-      open: true,
-      title,
-      description,
-      onConfirm
-    });
-  };
-  
+  const { showAlert, alertProps } = useAlertDialog();
+  const { showConfirm, confirmProps } = useConfirmDialog();
 
   const requiredFieldsFilled = Boolean(
     form.slug && String(form.slug).trim() !== '' &&
@@ -109,25 +72,9 @@ const NewsAdmin: React.FC = () => {
     form.content && String(form.content).trim() !== ''
   );
 
-  const hasChanges = () => {
-    if (!editing) return true;
-    const keys: (keyof NewsItem)[] = ['slug', 'title', 'description', 'content', 'date', 'image', 'link'];
-    for (const k of keys) {
-      const fVal = (form as any)[k] ?? '';
-      const eVal = (editing as any)[k] ?? '';
-      if (String(fVal) !== String(eVal)) return true;
-    }
-    return false;
-  };
+  const hasChanges = () => !editing || hasFieldChanges(form, editing, NEWS_FIELDS);
 
   const saveDisabled = !(requiredFieldsFilled && (editing ? hasChanges() : true));
-
-  const formatDateForAPI = (date: Date): string => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
 
   const handleDateChange = (date: Date | undefined) => {
     setSelectedDate(date);
@@ -151,7 +98,7 @@ const NewsAdmin: React.FC = () => {
     return res.json();
   };
 
-  const createUpdate = useMutation<any, Error, any>({
+  const createUpdate = useMutation<Awaited<ReturnType<typeof postNews>>, Error, NewsPayload>({
     mutationFn: postNews,
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['news'] });
@@ -162,36 +109,24 @@ const NewsAdmin: React.FC = () => {
       setForm({});
     },
     onError: (error: Error) => {
-      if (isConflictError(error)) {
+      if (isSlugExistsError(error)) {
         toast({
-          title: 'Änderungskonflikt',
-          description: conflictDescription(error),
-          variant: 'destructive'
-        });
-      } else if (error.message === 'Slug already exists') {
-        toast({ 
-          title: 'Fehler', 
+          title: 'Slug existiert bereits',
           description: 'Dieser Slug existiert bereits. Bitte wählen Sie einen anderen Slug.',
           variant: 'destructive'
         });
-      } else {
-        toast({ 
-          title: 'Fehler', 
-          description: 'Konnte nicht speichern',
-          variant: 'destructive'
-        });
+        return;
       }
+      const { title, description } = describeApiError(error, 'Konnte nicht speichern');
+      toast({ title, description, variant: 'destructive' });
     }
   });
 
   const startCreate = () => {
     setEditing(null);
-    const maxId = (data || []).reduce((m, it) => Math.max(m, it.id || 0), 0);
-    const newId = maxId + 1 || 1;
-    const todayStr = new Date().toISOString().slice(0, 10);
-    setForm({ id: newId, date: todayStr, content: '' });
-  setSelectedDate(new Date());
-  setOpen(true);
+    setForm({ date: todayLocal(), content: '' });
+    setSelectedDate(new Date());
+    setOpen(true);
   };
 
   const startEdit = async (item: NewsItem) => {
@@ -199,16 +134,13 @@ const NewsAdmin: React.FC = () => {
       await editLock.acquire(item.id);
       const full = await fetchNewsBySlug(item.slug);
       setEditing(full);
-      const today = new Date().toISOString().slice(0, 10);
-      const datePart = full.date ? String(full.date).split(' ')[0] : today;
+      const datePart = full.date ? String(full.date).split(' ')[0] : todayLocal();
       setForm({ ...full, date: datePart });
-      try {
-        setSelectedDate(new Date(datePart));
-      } catch (e) {
-        setSelectedDate(new Date());
-      }
+      const parsed = parseDateString(datePart);
+      setSelectedDate(Number.isNaN(parsed.getTime()) ? new Date() : parsed);
       setOpen(true);
     } catch (err) {
+      if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) {
         toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' });
         return;
@@ -219,13 +151,17 @@ const NewsAdmin: React.FC = () => {
   };
 
   const save = () => {
-    const payload = { ...form } as any;
-    if (form.id) payload.id = form.id;
-    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
-    const nowFull = new Date().toISOString().replace('T', ' ').split('.')[0];
+    const payload: NewsPayload = { ...form };
+    if (editing) {
+      payload.id = editing.id;
+      if (editing.updated_at) payload.expected_updated_at = editing.updated_at;
+    } else {
+      // New entries get their id from the server.
+      delete payload.id;
+    }
     if (!payload.date) {
-      payload.date = nowFull;
-    } else if (typeof payload.date === 'string' && payload.date.length === 10) {
+      payload.date = formatDateTimeForAPI(new Date());
+    } else if (payload.date.length === 10) {
       payload.date = `${payload.date} 00:00:00`;
     }
     createUpdate.mutate(payload);
@@ -237,18 +173,12 @@ const NewsAdmin: React.FC = () => {
       `Möchten Sie die Nachricht "${item.title}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.delete(API, { id: item.id, expected_updated_at: item.updated_at });
-          
-          if (res.ok) {
-            queryClient.invalidateQueries({ queryKey: ['news'] });
-            showAlert('Erfolg', 'Nachricht wurde erfolgreich gelöscht', 'success');
-          } else {
-            const data = await res.json().catch(() => ({}));
-            const conflict = isConflictError({ message: data.message, conflict: data.conflict }) || res.status === 409;
-            showAlert(conflict ? 'Änderungskonflikt' : 'Fehler', conflict ? conflictDescription(new Error(data.message || 'Dieser Eintrag wurde zwischenzeitlich geändert. Bitte neu laden.')) : 'Fehler beim Löschen', 'error');
-          }
+          await deleteJson(API, { id: item.id, expected_updated_at: item.updated_at });
+          queryClient.invalidateQueries({ queryKey: ['news'] });
+          showAlert('Erfolg', 'Nachricht wurde erfolgreich gelöscht', 'success');
         } catch (err) {
-          showAlert('Fehler', 'Netzwerkfehler', 'error');
+          const { title, description } = describeApiError(err, 'Fehler beim Löschen');
+          showAlert(title, description, 'error');
         }
       }
     );
@@ -413,20 +343,10 @@ const NewsAdmin: React.FC = () => {
         </div>
       </div>
       
-      <AlertMessage
-        open={alertDialog.open}
-        onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        variant={alertDialog.variant}
-      />
+      <AlertMessage {...alertProps} />
       
       <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={confirmDialog.onConfirm}
+        {...confirmProps}
         confirmText="Löschen"
         variant="destructive"
       />

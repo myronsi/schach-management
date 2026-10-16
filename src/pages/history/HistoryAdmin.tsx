@@ -11,12 +11,14 @@ import { useToast } from '@/hooks/use-toast';
 import { Edit, Plus, Trash2 } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { httpUtils } from '@/lib/auth-utils';
 import AuditMeta from '@/components/AuditMeta';
-import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
-import { EditLockError, useEditLock } from '@/lib/editLock';
+import { apiUrl } from '@/lib/api';
+import { deleteJson, describeApiError, postJson } from '@/lib/api-errors';
+import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { hasFieldChanges } from '@/lib/form';
+import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 
-const API = 'https://sc-laufenburg.de/api/history.php';
+const API = apiUrl('history.php');
 
 interface HistoryItem {
   id: string;
@@ -32,14 +34,11 @@ const fetchHistory = async (): Promise<HistoryItem[]> => {
   return res.json();
 };
 
-const postHistory = async (payload: any) => {
-  const res = await httpUtils.post(API, payload);
-  const data = await res.json();
-  if (!res.ok || data.success === false) {
-    throw markConflict(new Error(data.message || 'Failed to save'), data.conflict === true || res.status === 409);
-  }
-  return data;
-};
+type HistoryItemPayload = Partial<HistoryItem> & { expected_updated_at?: string };
+
+const postHistory = (payload: HistoryItemPayload) => postJson<{ id?: number | string }>(API, payload);
+
+const HISTORY_FIELDS: (keyof HistoryItem)[] = ['date', 'text'];
 
 const HistoryAdmin: React.FC = () => {
   const queryClient = useQueryClient();
@@ -53,47 +52,8 @@ const HistoryAdmin: React.FC = () => {
   const [editing, setEditing] = useState<HistoryItem | null>(null);
   const [form, setForm] = useState<Partial<HistoryItem>>({});
   
-  const [alertDialog, setAlertDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    variant: 'success' | 'error' | 'info';
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    variant: 'info'
-  });
-  
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    onConfirm: () => void;
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    onConfirm: () => {}
-  });
-
-  const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
-    setAlertDialog({
-      open: true,
-      title,
-      description,
-      variant
-    });
-  };
-
-  const showConfirm = (title: string, description: string, onConfirm: () => void) => {
-    setConfirmDialog({
-      open: true,
-      title,
-      description,
-      onConfirm
-    });
-  };
+  const { showAlert, alertProps } = useAlertDialog();
+  const { showConfirm, confirmProps } = useConfirmDialog();
 
   const isValidDateFormat = (dateStr: string): boolean => {
     if (!dateStr || dateStr.trim() === '') return false;
@@ -114,26 +74,16 @@ const HistoryAdmin: React.FC = () => {
   };
 
   const requiredFieldsFilled = Boolean(
-    form.id && String(form.id).trim() !== '' &&
     form.date && String(form.date).trim() !== '' &&
     isValidDateFormat(form.date) &&
     form.text && String(form.text).trim() !== ''
   );
 
-  const hasChanges = () => {
-    if (!editing) return true;
-    const keys: (keyof HistoryItem)[] = ['id', 'date', 'text'];
-    for (const k of keys) {
-      const fVal = (form as any)[k] ?? '';
-      const eVal = (editing as any)[k] ?? '';
-      if (String(fVal) !== String(eVal)) return true;
-    }
-    return false;
-  };
+  const hasChanges = () => !editing || hasFieldChanges(form, editing, HISTORY_FIELDS);
 
   const saveDisabled = !(requiredFieldsFilled && (editing ? hasChanges() : true));
 
-  const createUpdate = useMutation<any, Error, any>({
+  const createUpdate = useMutation<Awaited<ReturnType<typeof postHistory>>, Error, HistoryItemPayload>({
     mutationFn: postHistory,
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['history'] });
@@ -144,18 +94,14 @@ const HistoryAdmin: React.FC = () => {
       setForm({});
     },
     onError: (error: Error) => {
-      toast({
-        title: isConflictError(error) ? 'Änderungskonflikt' : 'Fehler',
-        description: isConflictError(error) ? conflictDescription(error) : 'Konnte nicht speichern: ' + error.message,
-        variant: 'destructive'
-      });
+      const { title, description } = describeApiError(error, 'Konnte nicht speichern: ' + error.message);
+      toast({ title, description, variant: 'destructive' });
     }
   });
 
   const startCreate = () => {
     setEditing(null);
-    const newId = Date.now().toString();
-    setForm({ id: newId, date: '', text: '' });
+    setForm({ date: '', text: '' });
     setOpen(true);
   };
 
@@ -163,6 +109,7 @@ const HistoryAdmin: React.FC = () => {
     try {
       await editLock.acquire(item.id);
     } catch (err) {
+      if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
       void editLock.release();
       toast({ title: 'Fehler', description: 'Bearbeitung konnte nicht gestartet werden', variant: 'destructive' });
@@ -174,8 +121,14 @@ const HistoryAdmin: React.FC = () => {
   };
 
   const save = () => {
-    const payload = { ...form } as any;
-    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
+    const payload: HistoryItemPayload = { ...form };
+    if (editing) {
+      payload.id = editing.id;
+      if (editing.updated_at) payload.expected_updated_at = editing.updated_at;
+    } else {
+      // New entries get their id from the server.
+      delete payload.id;
+    }
     createUpdate.mutate(payload);
   };
 
@@ -185,18 +138,12 @@ const HistoryAdmin: React.FC = () => {
       `Möchten Sie den Eintrag "${item.date}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.delete(API, { id: item.id, expected_updated_at: item.updated_at });
-          
-          if (res.ok) {
-            queryClient.invalidateQueries({ queryKey: ['history'] });
-            showAlert('Erfolg', 'Historie-Eintrag wurde erfolgreich gelöscht', 'success');
-          } else {
-            const data = await res.json().catch(() => ({}));
-            const conflict = isConflictError({ message: data.message, conflict: data.conflict }) || res.status === 409;
-            showAlert(conflict ? 'Änderungskonflikt' : 'Fehler', conflict ? conflictDescription(new Error(data.message || 'Dieser Eintrag wurde zwischenzeitlich geändert. Bitte neu laden.')) : 'Fehler beim Löschen', 'error');
-          }
+          await deleteJson(API, { id: item.id, expected_updated_at: item.updated_at });
+          queryClient.invalidateQueries({ queryKey: ['history'] });
+          showAlert('Erfolg', 'Historie-Eintrag wurde erfolgreich gelöscht', 'success');
         } catch (err) {
-          showAlert('Fehler', 'Netzwerkfehler', 'error');
+          const { title, description } = describeApiError(err, 'Fehler beim Löschen');
+          showAlert(title, description, 'error');
         }
       }
     );
@@ -317,20 +264,10 @@ const HistoryAdmin: React.FC = () => {
         </div>
       </div>
       
-      <AlertMessage
-        open={alertDialog.open}
-        onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        variant={alertDialog.variant}
-      />
+      <AlertMessage {...alertProps} />
       
       <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={confirmDialog.onConfirm}
+        {...confirmProps}
         confirmText="Löschen"
         variant="destructive"
       />

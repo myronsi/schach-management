@@ -10,7 +10,10 @@ import { cn } from '@/lib/utils';
 import { DatePicker } from '@/components/ui/date-picker';
 import { TypeSelector } from '@/components/ui/type-selector';
 import { AlertMessage } from '@/components/ui/alert-message';
-import { httpUtils } from '@/lib/auth-utils';
+import { apiUrl } from '@/lib/api';
+import { postJson } from '@/lib/api-errors';
+import { addMonthsClamped, addMonthsSameWeekday, formatDateForAPI, parseDateString } from '@/lib/date';
+import { useAlertDialog } from '@/hooks/useDialogs';
 
 type FormData = {
   title: string;
@@ -24,7 +27,20 @@ type FormData = {
   is_recurring?: boolean;
 };
 
-const API = 'https://sc-laufenburg.de/api/events.php';
+const API = apiUrl('events.php');
+
+interface EventCreatePayload {
+  title: string;
+  date: string;
+  time?: string;
+  location?: string;
+  description?: string;
+  type?: string;
+  is_recurring: number;
+}
+
+/** Maximum number of occurrences created for one recurring series (matches the input's max). */
+const MAX_REPEAT_COUNT = 50;
 
 interface CreateEventDialogProps {
   onSuccess?: () => void;
@@ -74,8 +90,8 @@ const repeatOptions = [
   { value: "none", label: "Keine Wiederholung" },
   { value: "daily", label: "Täglich" },
   { value: "weekly", label: "Wöchentlich" },
-  { value: "monthly", label: "Monatlich" },
-  { value: "monthly_date", label: "Jeden Monat am gleichen Tag" },
+  { value: "monthly", label: "Monatlich am gleichen Wochentag (z.B. jeden 2. Dienstag)" },
+  { value: "monthly_date", label: "Monatlich am gleichen Datum (z.B. jeden 15.)" },
   { value: "yearly", label: "Jährlich" }
 ];
 
@@ -99,33 +115,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
   const watchRepeatCount = watch("repeatCount");
   const showRepeatCount = watchRepeatType && watchRepeatType !== "none";
   const hasDateRange = selectedEndDate !== undefined;
-  const [alertDialog, setAlertDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    variant: 'success' | 'error' | 'info';
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    variant: 'info'
-  });
-
-  const formatDateForAPI = (date: Date): string => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
-    setAlertDialog({
-      open: true,
-      title,
-      description,
-      variant
-    });
-  };
+  const { showAlert, alertProps } = useAlertDialog();
 
   const isFormValid = () => {
     const hasTitle = watchTitle && watchTitle.trim().length > 0;
@@ -223,11 +213,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
           is_recurring: isRecurring ? 1 : 0
         };
 
-        const res = await httpUtils.post(`${API}?action=create`, payload);
-        if (!res.ok) {
-          const body = await res.json();
-          throw new Error(body.error || res.statusText);
-        }
+        await postJson(`${API}?action=create`, payload, 'Ereignis konnte nicht erstellt werden');
         showAlert('Erfolg', `Ereignisse von ${start} bis ${end} erfolgreich erstellt`, 'success');
       } else {
         const eventDate = selectedDate ? formatDateForAPI(selectedDate) : data.date;
@@ -237,8 +223,8 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
           return;
         }
 
-        const eventsToCreate = [];
-        const baseEvent = {
+        const eventsToCreate: EventCreatePayload[] = [];
+        const baseEvent: EventCreatePayload = {
           title: data.title,
           date: eventDate,
           time: data.time,
@@ -251,45 +237,48 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
         if (!data.repeatType || data.repeatType === "none") {
           eventsToCreate.push(baseEvent);
         } else {
-          const repeatCount = data.repeatCount || 1;
-          const startDate = new Date(eventDate);
-          
+          const repeatCount = Math.min(Math.max(data.repeatCount || 1, 1), MAX_REPEAT_COUNT);
+          const startDate = parseDateString(eventDate);
+
           for (let i = 0; i < repeatCount; i++) {
-            const eventDate = new Date(startDate);
-            
+            let occurrence: Date;
+
             switch (data.repeatType) {
               case "daily":
-                eventDate.setDate(startDate.getDate() + i);
+                occurrence = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + i);
                 break;
               case "weekly":
-                eventDate.setDate(startDate.getDate() + (i * 7));
+                occurrence = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + i * 7);
                 break;
               case "monthly":
-                eventDate.setMonth(startDate.getMonth() + i);
+                // Same weekday occurrence each month, e.g. every 2nd Tuesday.
+                occurrence = addMonthsSameWeekday(startDate, i);
                 break;
               case "monthly_date":
-                eventDate.setMonth(startDate.getMonth() + i);
+                // Same day of month; clamped to the month's last day (31 Jan -> 28/29 Feb).
+                occurrence = addMonthsClamped(startDate, i);
                 break;
               case "yearly":
-                eventDate.setFullYear(startDate.getFullYear() + i);
+                // Clamped as well, so 29 Feb -> 28 Feb in non-leap years.
+                occurrence = addMonthsClamped(startDate, i * 12);
                 break;
+              default:
+                occurrence = startDate;
             }
-            
+
             eventsToCreate.push({
               ...baseEvent,
-              date: formatDateForAPI(eventDate)
+              date: formatDateForAPI(occurrence)
             });
           }
         }
 
-        for (const event of eventsToCreate) {
-          const res = await httpUtils.post(`${API}?action=create`, event);
-          
-          if (!res.ok) {
-            const body = await res.json();
-            throw new Error(body.error || res.statusText);
-          }
-        }
+        // One request for the whole series: the server creates all events in one transaction (all-or-nothing).
+        await postJson(
+          `${API}?action=create`,
+          data.repeatType && data.repeatType !== 'none' ? eventsToCreate : eventsToCreate[0],
+          'Ereignisse konnten nicht erstellt werden'
+        );
 
         showAlert('Erfolg', `${eventsToCreate.length} Ereignis(se) erfolgreich erstellt`, 'success');
       }
@@ -497,13 +486,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
       </form>
       
       {/* Alert Dialog */}
-      <AlertMessage
-        open={alertDialog.open}
-        onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        variant={alertDialog.variant}
-      />
+      <AlertMessage {...alertProps} />
     </div>
   );
 };

@@ -93,7 +93,7 @@ export const useMediaForm = () => {
       const data = await uploadFiles(form.title, files);
       
       if (data.success) {
-        let successMsg = `${data.uploaded_count || data.files.length} Datei(en) hochgeladen`;
+        let successMsg = `${data.uploaded_count || data.files?.length || 0} Datei(en) hochgeladen`;
         if (data.target_path) {
           successMsg += ` nach ${data.target_path}`;
         }
@@ -122,12 +122,17 @@ export const useMediaForm = () => {
         
         return { success: true };
       } else {
+        toast({
+          title: 'Fehler',
+          description: data.message || 'Upload fehlgeschlagen',
+          variant: 'destructive'
+        });
         return { success: false, error: data };
       }
-    } catch (error: any) {
-      toast({ 
-        title: 'Fehler', 
-        description: error.message || 'Upload fehlgeschlagen',
+    } catch (error) {
+      toast({
+        title: 'Fehler',
+        description: (error instanceof Error && error.message) || 'Upload fehlgeschlagen',
         variant: 'destructive'
       });
       return { success: false };
@@ -163,12 +168,17 @@ export const useMediaForm = () => {
           description: message 
         });
       } else {
+        toast({
+          title: 'Fehler',
+          description: data.message || 'Scan fehlgeschlagen',
+          variant: 'destructive'
+        });
         return { success: false, error: data };
       }
-    } catch (error: any) {
-      toast({ 
-        title: 'Fehler', 
-        description: error.message || 'Scan fehlgeschlagen',
+    } catch (error) {
+      toast({
+        title: 'Fehler',
+        description: (error instanceof Error && error.message) || 'Scan fehlgeschlagen',
         variant: 'destructive'
       });
     } finally {

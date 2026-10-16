@@ -15,12 +15,14 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { httpUtils } from '@/lib/auth-utils';
 import AuditMeta from '@/components/AuditMeta';
-import { isConflictError, markConflict, conflictDescription } from '@/lib/conflict';
-import { EditLockError, useEditLock } from '@/lib/editLock';
+import { apiUrl } from '@/lib/api';
+import { deleteJson, describeApiError, postJson } from '@/lib/api-errors';
+import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { hasFieldChanges } from '@/lib/form';
+import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 
-const API = 'https://sc-laufenburg.de/api/tournaments.php';
+const API = apiUrl('tournaments.php');
 
 interface TournamentItem {
   id: number;
@@ -43,20 +45,17 @@ const TOURNAMENT_TYPES = [
 const TYPES_WITH_ONLY_FIRST = ['pokalsieger', 'blitzsieger'];
 
 const fetchTournaments = async (type?: string): Promise<TournamentItem[]> => {
-  const url = type && type !== 'all' ? `${API}?type=${type}` : API;
+  const url = type && type !== 'all' ? `${API}?type=${encodeURIComponent(type)}` : API;
   const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch tournaments');
   return res.json();
 };
 
-const postTournament = async (payload: any) => {
-  const res = await httpUtils.post(API, payload);
-  const data = await res.json();
-  if (!res.ok || data.success === false) {
-    throw markConflict(new Error(data.message || 'Failed to save'), data.conflict === true || res.status === 409);
-  }
-  return data;
-};
+type TournamentItemPayload = Partial<TournamentItem> & { expected_updated_at?: string };
+
+const postTournament = (payload: TournamentItemPayload) => postJson<{ id?: number | string }>(API, payload);
+
+const TOURNAMENT_FIELDS: (keyof TournamentItem)[] = ['type', 'year', 'first', 'second', 'third'];
 
 const TournamentsAdmin: React.FC = () => {
   const queryClient = useQueryClient();
@@ -83,47 +82,8 @@ const TournamentsAdmin: React.FC = () => {
     setFilterOpen(false);
   };
   
-  const [alertDialog, setAlertDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    variant: 'success' | 'error' | 'info';
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    variant: 'info'
-  });
-  
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    onConfirm: () => void;
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    onConfirm: () => {}
-  });
-
-  const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
-    setAlertDialog({
-      open: true,
-      title,
-      description,
-      variant
-    });
-  };
-
-  const showConfirm = (title: string, description: string, onConfirm: () => void) => {
-    setConfirmDialog({
-      open: true,
-      title,
-      description,
-      onConfirm
-    });
-  };
+  const { showAlert, alertProps } = useAlertDialog();
+  const { showConfirm, confirmProps } = useConfirmDialog();
 
   const showSecondThird = !TYPES_WITH_ONLY_FIRST.includes(form.type || '');
 
@@ -133,16 +93,7 @@ const TournamentsAdmin: React.FC = () => {
     form.first && String(form.first).trim() !== ''
   );
 
-  const hasChanges = () => {
-    if (!editing) return true;
-    const keys: (keyof TournamentItem)[] = ['type', 'year', 'first', 'second', 'third'];
-    for (const k of keys) {
-      const fVal = (form as any)[k] ?? '';
-      const eVal = (editing as any)[k] ?? '';
-      if (String(fVal) !== String(eVal)) return true;
-    }
-    return false;
-  };
+  const hasChanges = () => !editing || hasFieldChanges(form, editing, TOURNAMENT_FIELDS);
 
   const saveDisabled = !(requiredFieldsFilled && (editing ? hasChanges() : true));
 
@@ -152,7 +103,7 @@ const TournamentsAdmin: React.FC = () => {
     return res.json();
   };
 
-  const createUpdate = useMutation<any, Error, any>({
+  const createUpdate = useMutation<Awaited<ReturnType<typeof postTournament>>, Error, TournamentItemPayload>({
     mutationFn: postTournament,
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['tournaments'] });
@@ -163,23 +114,14 @@ const TournamentsAdmin: React.FC = () => {
       setForm({});
     },
     onError: (error: Error) => {
-      if (isConflictError(error)) {
-        toast({ title: 'Änderungskonflikt', description: conflictDescription(error), variant: 'destructive' });
-      } else {
-        toast({
-          title: 'Fehler',
-          description: 'Konnte nicht speichern',
-          variant: 'destructive'
-        });
-      }
+      const { title, description } = describeApiError(error, 'Konnte nicht speichern');
+      toast({ title, description, variant: 'destructive' });
     }
   });
 
   const startCreate = () => {
     setEditing(null);
-    const maxId = (data || []).reduce((m, it) => Math.max(m, it.id || 0), 0);
-    const newId = maxId + 1 || 1;
-    setForm({ id: newId, year: new Date().getFullYear().toString() });
+    setForm({ year: new Date().getFullYear().toString() });
     setOpen(true);
   };
 
@@ -191,15 +133,21 @@ const TournamentsAdmin: React.FC = () => {
       setForm({ ...full });
       setOpen(true);
     } catch (err) {
+      if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
       toast({ title: 'Fehler', description: 'Konnte Turnier nicht laden' });
     }
   };
 
   const save = () => {
-    const payload = { ...form } as any;
-    if (form.id) payload.id = form.id;
-    if (editing?.updated_at) payload.expected_updated_at = editing.updated_at;
+    const payload: TournamentItemPayload = { ...form };
+    if (editing) {
+      payload.id = editing.id;
+      if (editing.updated_at) payload.expected_updated_at = editing.updated_at;
+    } else {
+      // New entries get their id from the server.
+      delete payload.id;
+    }
     
     if (TYPES_WITH_ONLY_FIRST.includes(form.type || '')) {
       payload.second = '';
@@ -216,18 +164,12 @@ const TournamentsAdmin: React.FC = () => {
       `Möchten Sie das Turnier "${typeName} ${item.year}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.delete(API, { id: item.id, expected_updated_at: item.updated_at });
-          
-          if (res.ok) {
-            queryClient.invalidateQueries({ queryKey: ['tournaments'] });
-            showAlert('Erfolg', 'Turnier wurde erfolgreich gelöscht', 'success');
-          } else {
-            const data = await res.json().catch(() => ({}));
-            const conflict = isConflictError({ message: data.message, conflict: data.conflict }) || res.status === 409;
-            showAlert(conflict ? 'Änderungskonflikt' : 'Fehler', conflict ? conflictDescription(new Error(data.message || 'Dieser Eintrag wurde zwischenzeitlich geändert. Bitte neu laden.')) : 'Fehler beim Löschen', 'error');
-          }
+          await deleteJson(API, { id: item.id, expected_updated_at: item.updated_at });
+          queryClient.invalidateQueries({ queryKey: ['tournaments'] });
+          showAlert('Erfolg', 'Turnier wurde erfolgreich gelöscht', 'success');
         } catch (err) {
-          showAlert('Fehler', 'Netzwerkfehler', 'error');
+          const { title, description } = describeApiError(err, 'Fehler beim Löschen');
+          showAlert(title, description, 'error');
         }
       }
     );
@@ -448,20 +390,10 @@ const TournamentsAdmin: React.FC = () => {
         </div>
       </div>
       
-      <AlertMessage
-        open={alertDialog.open}
-        onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        variant={alertDialog.variant}
-      />
+      <AlertMessage {...alertProps} />
       
       <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={confirmDialog.onConfirm}
+        {...confirmProps}
         confirmText="Löschen"
         variant="destructive"
       />

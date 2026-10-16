@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Navbar from '@/components/ui/navbar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,12 +12,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import CreateEventDialog from '@/components/events/CreateEventDialog';
 import EditEventDialog from '@/components/events/EditEventDialog';
 import DeleteEventDialog from '@/components/events/DeleteEventDialog';
-import { httpUtils } from '@/lib/auth-utils';
+import { apiUrl } from '@/lib/api';
+import { describeApiError, postJson, readJson } from '@/lib/api-errors';
 import EventCard from './EventCard';
 import type { Event, FilterType } from './eventUtils';
 import { filterOptions, filterEvents } from './eventUtils';
+import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 
-const API = 'https://sc-laufenburg.de/api/events.php';
+const API = apiUrl('events.php');
 
 const EventsList: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
@@ -29,85 +31,65 @@ const EventsList: React.FC = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   
-  const [alertDialog, setAlertDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    variant: 'success' | 'error' | 'info';
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    variant: 'info'
-  });
-  
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    onConfirm: () => void;
-  }>({
-    open: false,
-    title: '',
-    description: '',
-    onConfirm: () => {}
-  });
+  const { showAlert, alertProps } = useAlertDialog();
+  const { showConfirm, confirmProps } = useConfirmDialog();
 
-  const showAlert = (title: string, description: string, variant: 'success' | 'error' | 'info' = 'info') => {
-    setAlertDialog({
-      open: true,
-      title,
-      description,
-      variant
-    });
-  };
+  // Each load gets a sequence number and an AbortController so that a slow response for a
+  // previously selected filter can never overwrite the result of the current one.
+  const requestSeqRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  const currentFilterRef = useRef<FilterType>(currentFilter);
+  currentFilterRef.current = currentFilter;
 
-  const showConfirm = (title: string, description: string, onConfirm: () => void) => {
-    setConfirmDialog({
-      open: true,
-      title,
-      description,
-      onConfirm
-    });
-  };
+  const loadEvents = useCallback(async (filterParam?: FilterType) => {
+    const filterToUse = filterParam ?? currentFilterRef.current;
+    const seq = ++requestSeqRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    let action = 'list';
+    if (filterToUse === 'future' || filterToUse === 'today') {
+      action = 'upcoming';
+    } else if (filterToUse === 'past') {
+      action = 'past';
+    }
+
+    try {
+      const res = await fetch(`${API}?action=${action}`, { signal: controller.signal });
+      const data = await readJson<{ events?: Event[] }>(res);
+      if (seq !== requestSeqRef.current) return; // stale response
+      if (!res.ok || data.success === false) {
+        showAlert('Fehler', data.message || `Ereignisse konnten nicht geladen werden (HTTP ${res.status}).`, 'error');
+        return;
+      }
+      const allEvents = data.events || [];
+      setEvents(allEvents);
+      setFilteredEvents(filterEvents(allEvents, filterToUse));
+    } catch (err) {
+      if (controller.signal.aborted || seq !== requestSeqRef.current) return;
+      console.error('Fehler beim Laden der Ereignisse:', err);
+      showAlert('Fehler', 'Ereignisse konnten nicht geladen werden (Netzwerkfehler).', 'error');
+    } finally {
+      if (seq === requestSeqRef.current) setLoading(false);
+    }
+  }, [showAlert]);
 
   const handleFilterChange = (filter: FilterType) => {
     setCurrentFilter(filter);
-    loadEvents(filter);
+    currentFilterRef.current = filter;
+    void loadEvents(filter);
     setFilterOpen(false);
   };
 
   const handleEventSuccess = () => {
-    loadEvents();
-  };
-
-  const loadEvents = async (filterParam?: FilterType) => {
-    const filterToUse = filterParam ?? currentFilter;
-    try {
-      let action = 'list';
-      if (filterToUse === 'future' || filterToUse === 'today') {
-        action = 'upcoming';
-      } else if (filterToUse === 'past') {
-        action = 'past';
-      }
-
-      const res = await fetch(`${API}?action=${action}`);
-      if (res.ok) {
-        const data = await res.json();
-        const allEvents = data.events || [];
-        setEvents(allEvents);
-        setFilteredEvents(filterEvents(allEvents, filterToUse));
-      }
-    } catch (err) {
-      console.error('Fehler beim Laden der Ereignisse:', err);
-    } finally {
-      setLoading(false);
-    }
+    void loadEvents();
   };
 
   useEffect(() => {
-    loadEvents();
-  }, []);
+    void loadEvents();
+    return () => abortRef.current?.abort();
+  }, [loadEvents]);
 
   useEffect(() => {
     setFilteredEvents(filterEvents(events, currentFilter));
@@ -119,20 +101,12 @@ const EventsList: React.FC = () => {
       `Möchten Sie das Ereignis "${title}" wirklich löschen?`,
       async () => {
         try {
-          const res = await httpUtils.post(`${API}?action=delete`, { id, expected_updated_at });
-          
-          if (res.ok) {
-            await loadEvents();
-            showAlert('Erfolg', 'Ereignis wurde erfolgreich gelöscht', 'success');
-          } else {
-            const result = await res.json().catch(() => ({}));
-            const conflict = result.conflict === true || res.status === 409;
-            showAlert(conflict ? 'Änderungskonflikt' : 'Fehler', conflict
-              ? (result.message || 'Dieser Eintrag wurde zwischenzeitlich geändert. Bitte neu laden.')
-              : 'Fehler beim Löschen', 'error');
-          }
+          await postJson(`${API}?action=delete`, { id, expected_updated_at }, 'Fehler beim Löschen');
+          await loadEvents();
+          showAlert('Erfolg', 'Ereignis wurde erfolgreich gelöscht', 'success');
         } catch (err) {
-          showAlert('Fehler', 'Netzwerkfehler', 'error');
+          const { title, description } = describeApiError(err, 'Fehler beim Löschen');
+          showAlert(title, description, 'error');
         }
       }
     );
@@ -278,20 +252,10 @@ const EventsList: React.FC = () => {
       </div>
       
       {/* Dialog Components */}
-      <AlertMessage
-        open={alertDialog.open}
-        onOpenChange={(open) => setAlertDialog(prev => ({ ...prev, open }))}
-        title={alertDialog.title}
-        description={alertDialog.description}
-        variant={alertDialog.variant}
-      />
+      <AlertMessage {...alertProps} />
       
       <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={confirmDialog.onConfirm}
+        {...confirmProps}
         confirmText="Löschen"
         variant="destructive"
       />

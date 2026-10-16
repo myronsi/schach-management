@@ -2,10 +2,12 @@ import React from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Link, Globe, HardDrive, File, CheckCircle, Info } from 'lucide-react';
+import type { DocumentForm } from '../types';
+import { siteUrl } from '@/lib/api';
 
 interface DocumentSourceManualProps {
-  form: any;
-  onFormChange: (updates: any) => void;
+  form: DocumentForm;
+  onFormChange: (updates: DocumentForm) => void;
 }
 
 export const DocumentSourceManual: React.FC<DocumentSourceManualProps> = ({
@@ -94,7 +96,7 @@ export const DocumentSourceManual: React.FC<DocumentSourceManualProps> = ({
               <li>/docs/statuten/vereinsstatuten.pdf</li>
               <li>/docs/protokolle/2024/hauptversammlung.pdf</li>
               <li>https://example.com/downloads/dokument.pdf</li>
-              <li>https://sc-laufenburg.de/files/bericht.pdf</li>
+              <li>{siteUrl('files/bericht.pdf')}</li>
             </ul>
           </div>
         </div>

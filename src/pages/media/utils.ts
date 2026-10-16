@@ -6,7 +6,7 @@ export const parseChildren = (children: string | ChildItem[]): ChildItem[] => {
     try {
       const parsed = JSON.parse(children);
       return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
+    } catch {
       return [];
     }
   }
@@ -43,7 +43,7 @@ export const stripBaseUrl = (src: string, baseUrl: string): string => {
       const url = new URL(trimmedSrc);
       const pathname = url.pathname;
       return pathname.startsWith('/') ? pathname.substring(1) : pathname;
-    } catch (e) {
+    } catch {
       return trimmedSrc;
     }
   }

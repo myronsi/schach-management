@@ -1,3 +1,5 @@
+import { apiUrl } from '@/lib/api';
+
 interface CookieOptions {
   expires?: Date;
   maxAge?: number;
@@ -52,8 +54,8 @@ export const cookieUtils = {
     const nameEQ = encodeURIComponent(name) + '=';
     const cookies = document.cookie.split(';');
     
-    for (let cookie of cookies) {
-      let c = cookie.trim();
+    for (const cookie of cookies) {
+      const c = cookie.trim();
       if (c.indexOf(nameEQ) === 0) {
         return decodeURIComponent(c.substring(nameEQ.length));
       }
@@ -75,8 +77,16 @@ export const cookieUtils = {
   }
 };
 
+export interface JwtPayload {
+  exp?: number;
+  iat?: number;
+  username?: string;
+  status?: string;
+  [claim: string]: unknown;
+}
+
 export const jwtUtils = {
-  decodePayload(token: string): any | null {
+  decodePayload(token: string): JwtPayload | null {
     try {
       const parts = token.split('.');
       if (parts.length !== 3) {
@@ -86,7 +96,8 @@ export const jwtUtils = {
       const payload = parts[1];
       const paddedPayload = payload + '='.repeat((4 - payload.length % 4) % 4);
       const decoded = atob(paddedPayload);
-      return JSON.parse(decoded);
+      const parsed: unknown = JSON.parse(decoded);
+      return parsed && typeof parsed === 'object' ? (parsed as JwtPayload) : null;
     } catch (error) {
       console.error('Error decoding JWT payload:', error);
       return null;
@@ -135,44 +146,63 @@ export const jwtUtils = {
   }
 };
 
+export interface TokenRenewalResult {
+  success: boolean;
+  message: string;
+  token?: string;
+  /**
+   * true only if the server explicitly rejected the token (or it is missing/expired locally).
+   * Network errors and 5xx responses leave this false so the session is kept and retried later.
+   */
+  invalid?: boolean;
+}
+
+const LEGACY_COOKIE_NAME = 'auth_token';
+
+/**
+ * Older versions mirrored the JWT into a JS-readable cookie that the server never read.
+ * Remove any such leftover cookie once when this module loads.
+ */
+function removeLegacyCookie(): void {
+  try {
+    if (typeof document !== 'undefined' && cookieUtils.exists(LEGACY_COOKIE_NAME)) {
+      cookieUtils.remove(LEGACY_COOKIE_NAME);
+    }
+  } catch {
+    // ignore: cookies may be unavailable (e.g. privacy mode)
+  }
+}
+
+removeLegacyCookie();
+
 export const authToken = {
-  COOKIE_NAME: 'auth_token',
   STORAGE_KEY: 'auth_token',
-  
+
   set(token: string): void {
-    cookieUtils.set(this.COOKIE_NAME, token);
     try {
       localStorage.setItem(this.STORAGE_KEY, token);
-    } catch {}
-  },
-  
-  get(): string | null {
-    const cookieToken = cookieUtils.get(this.COOKIE_NAME);
-    if (cookieToken) {
-      try {
-        localStorage.setItem(this.STORAGE_KEY, cookieToken);
-      } catch {}
-      return cookieToken;
+    } catch (error) {
+      console.error('Could not persist auth token', error);
     }
-
-    try {
-      const storedToken = localStorage.getItem(this.STORAGE_KEY);
-      if (storedToken) {
-        cookieUtils.set(this.COOKIE_NAME, storedToken);
-        return storedToken;
-      }
-    } catch {}
-
-    return null;
   },
-  
+
+  get(): string | null {
+    try {
+      return localStorage.getItem(this.STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  },
+
   remove(): void {
-    cookieUtils.remove(this.COOKIE_NAME);
     try {
       localStorage.removeItem(this.STORAGE_KEY);
-    } catch {}
+    } catch {
+      // storage unavailable – nothing to remove
+    }
+    removeLegacyCookie();
   },
-  
+
   exists(): boolean {
     const token = this.get();
     return token !== null && !jwtUtils.isExpired(token);
@@ -193,14 +223,18 @@ export const authToken = {
     return token ? jwtUtils.needsRenewal(token) : false;
   },
 
-  async renewToken(): Promise<{ success: boolean; message: string; token?: string }> {
+  async renewToken(): Promise<TokenRenewalResult> {
     const currentToken = this.get();
     if (!currentToken) {
-      return { success: false, message: 'No token to renew' };
+      return { success: false, message: 'No token to renew', invalid: true };
+    }
+    if (jwtUtils.isExpired(currentToken)) {
+      return { success: false, message: 'Token expired', invalid: true };
     }
 
+    let response: Response;
     try {
-      const response = await fetch('https://sc-laufenburg.de/api/auth.php', {
+      response = await fetch(apiUrl('auth.php'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -211,28 +245,43 @@ export const authToken = {
           token: currentToken
         })
       });
-
-      const data = await response.json();
-
-      if (response.ok && data.success && data.token) {
-        // Store the new token
-        this.set(data.token);
-        return { success: true, message: data.message, token: data.token };
-      } else {
-        return { success: false, message: data.message || 'Token renewal failed' };
-      }
     } catch (error) {
-      console.error('Token renewal error:', error);
-      return { success: false, message: 'Network error during token renewal' };
+      console.error('Token renewal network error:', error);
+      return { success: false, message: 'Network error during token renewal', invalid: false };
     }
+
+    let data: { success?: boolean; token?: string; message?: string } = {};
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
+    }
+
+    if (response.ok && data.success && data.token) {
+      this.set(data.token);
+      return { success: true, message: data.message || '', token: data.token };
+    }
+
+    // Explicit rejection: OK response with success:false, or 401/403.
+    const invalid = (response.ok && data.success === false) || response.status === 401 || response.status === 403;
+    return { success: false, message: data.message || 'Token renewal failed', invalid };
   },
 
+  /**
+   * Renews the token if it is close to expiry.
+   * Returns false only if the session is definitively invalid (expired locally or rejected by the server);
+   * transient failures (network, 5xx) return true so the caller keeps the session and retries later.
+   */
   async autoRenew(): Promise<boolean> {
-    if (this.needsRenewal()) {
-      const result = await this.renewToken();
-      return result.success;
+    const token = this.get();
+    if (!token || jwtUtils.isExpired(token)) {
+      return false;
     }
-    return true;
+    if (!jwtUtils.needsRenewal(token)) {
+      return true;
+    }
+    const result = await this.renewToken();
+    return result.success || !result.invalid;
   }
 };
 
@@ -253,15 +302,15 @@ export const httpUtils = {
 
   async authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
     const token = authToken.get();
-    const headers: Record<string, string> = { ...(options.headers as Record<string, string> || {}) };
-    
+    const headers = new Headers(options.headers);
+
     if (!(options.body instanceof FormData)) {
-      headers['Content-Type'] = 'application/json';
+      headers.set('Content-Type', 'application/json');
     }
-    
+
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-      headers['X-Auth-Token'] = token;
+      headers.set('Authorization', `Bearer ${token}`);
+      headers.set('X-Auth-Token', token);
     }
 
     return fetch(url, {
@@ -270,7 +319,7 @@ export const httpUtils = {
     });
   },
 
-  async post(url: string, data: any, options: RequestInit = {}): Promise<Response> {
+  async post(url: string, data: unknown, options: RequestInit = {}): Promise<Response> {
     return this.authenticatedFetch(url, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -278,20 +327,20 @@ export const httpUtils = {
     });
   },
 
-  async delete(url: string, data?: any, options: RequestInit = {}): Promise<Response> {
+  async delete(url: string, data?: unknown, options: RequestInit = {}): Promise<Response> {
     const requestOptions: RequestInit = {
       method: 'DELETE',
       ...options
     };
 
-    if (data) {
+    if (data !== undefined) {
       requestOptions.body = JSON.stringify(data);
     }
 
     return this.authenticatedFetch(url, requestOptions);
   },
 
-  async put(url: string, data: any, options: RequestInit = {}): Promise<Response> {
+  async put(url: string, data: unknown, options: RequestInit = {}): Promise<Response> {
     return this.authenticatedFetch(url, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -299,7 +348,7 @@ export const httpUtils = {
     });
   },
 
-  async patch(url: string, data: any, options: RequestInit = {}): Promise<Response> {
+  async patch(url: string, data: unknown, options: RequestInit = {}): Promise<Response> {
     return this.authenticatedFetch(url, {
       method: 'PATCH',
       body: JSON.stringify(data),

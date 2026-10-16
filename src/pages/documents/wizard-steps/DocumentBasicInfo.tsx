@@ -3,10 +3,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FileText, Folder, Info } from 'lucide-react';
+import type { DocumentForm } from '../types';
 
 interface DocumentBasicInfoProps {
-  form: any;
-  onFormChange: (updates: any) => void;
+  form: DocumentForm;
+  onFormChange: (updates: DocumentForm) => void;
 }
 
 export const DocumentBasicInfo: React.FC<DocumentBasicInfoProps> = ({ form, onFormChange }) => {
