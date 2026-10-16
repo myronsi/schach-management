@@ -5,6 +5,7 @@ import { authToken, jwtUtils } from '@/lib/auth-utils';
 interface AuthContextType {
   isAuthenticated: boolean;
   username: string | null;
+  role: string | null;
   login: (username: string, password: string) => Promise<any>;
   logout: () => Promise<void>;
   checkAuthStatus: () => Promise<void>;
@@ -21,6 +22,7 @@ interface AuthProviderProps {
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         authToken.remove();
         setIsAuthenticated(false);
         setUsername(null);
+        setRole(null);
         setIsAuthChecked(true);
         return;
       }
@@ -76,9 +79,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           const data = await res.json();
           
           if (data && data.success) {
-            if (data.status && data.status === 'admin') {
+            if (data.status && ['admin', 'chairman'].includes(data.status)) {
               setIsAuthenticated(true);
               setUsername(tokenUsername);
+              setRole(data.status);
               setIsAuthChecked(true);
               return;
             } else {
@@ -86,6 +90,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
               authToken.remove();
               setIsAuthenticated(false);
               setUsername(null);
+              setRole(null);
               setIsAuthChecked(true);
               return;
             }
@@ -94,6 +99,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             authToken.remove();
             setIsAuthenticated(false);
             setUsername(null);
+          setRole(null);
           }
         } else {
           console.error('Server error during auth check:', res.status, res.statusText);
@@ -107,6 +113,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     if (!stillHasToken) {
       setIsAuthenticated(false);
       setUsername(null);
+      setRole(null);
     }
 
     setIsAuthChecked(true);
@@ -122,13 +129,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       const data = await res.json();
       
       if (res.ok && data && data.success) {
-        if (data.status && data.status === 'admin') {
+        if (data.status && ['admin', 'chairman'].includes(data.status)) {
           if (data.token) {
             authToken.set(data.token);
             
             const tokenUsername = jwtUtils.getUsername(data.token);
             setIsAuthenticated(true);
             setUsername(tokenUsername);
+            setRole(data.status);
           }
           return data;
         } else {
@@ -165,6 +173,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     authToken.remove();
     setIsAuthenticated(false);
     setUsername(null);
+    setRole(null);
   };
 
   const renewToken = async (): Promise<{ success: boolean; message: string }> => {
@@ -184,6 +193,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     <AuthContext.Provider value={{
       isAuthenticated,
       username,
+      role,
       login,
       logout,
       checkAuthStatus,

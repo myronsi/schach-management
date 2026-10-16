@@ -219,6 +219,8 @@ const UsersAdmin: React.FC = () => {
     switch (status) {
       case 'admin':
         return 'bg-purple-100 text-purple-800';
+      case 'chairman':
+        return 'bg-amber-100 text-amber-800';
       case 'user':
         return 'bg-green-100 text-green-800';
       case 'blocked':
@@ -232,6 +234,8 @@ const UsersAdmin: React.FC = () => {
     switch (status) {
       case 'admin':
         return 'Administrator';
+      case 'chairman':
+        return 'Vorsitzender';
       case 'user':
         return 'Benutzer';
       case 'blocked':
@@ -427,6 +431,7 @@ const UsersAdmin: React.FC = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="admin">Administrator</SelectItem>
+                      <SelectItem value="chairman">Vorsitzender</SelectItem>
                       <SelectItem value="user">Benutzer</SelectItem>
                       <SelectItem value="blocked">Blockiert</SelectItem>
                     </SelectContent>

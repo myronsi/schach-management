@@ -118,6 +118,18 @@ function isWriteOperation($action) {
     return in_array(strtolower($action), $writeOperations);
 }
 
+function requireChairman() {
+    return requireAuthentication(['chairman']);
+}
+
+function requireAdmin() {
+    return requireAuthentication(['admin']);
+}
+
+function requireAdminOrChairman() {
+    return requireAuthentication(['admin', 'chairman']);
+}
+
 function getAuthenticatedUser() {
     try {
         return requireAuthentication(['admin']);
