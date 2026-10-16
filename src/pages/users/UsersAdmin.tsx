@@ -12,6 +12,7 @@ import { Edit, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
 import { AlertMessage } from '@/components/ui/alert-message';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { httpUtils } from '@/lib/auth-utils';
+import { useAuth } from '@/hooks/useAuth';
 
 const API = 'https://sc-laufenburg.de/api/authm.php';
 
@@ -46,6 +47,7 @@ const postUser = async (payload: any) => {
 const UsersAdmin: React.FC = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { role } = useAuth();
   const { data, isLoading, error } = useQuery<User[], Error>({ 
     queryKey: ['users'], 
     queryFn: fetchUsers 
@@ -426,12 +428,14 @@ const UsersAdmin: React.FC = () => {
                     value={form.status || 'user'}
                     onValueChange={(value) => setForm({ ...form, status: value })}
                   >
-                    <SelectTrigger id="user-status">
+                    <SelectTrigger id="user-status" disabled={role !== 'chairman' && form.status === 'chairman'}>
                       <SelectValue placeholder="Status auswählen" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="admin">Administrator</SelectItem>
-                      <SelectItem value="chairman">Vorsitzender</SelectItem>
+                      {(role === 'chairman' || form.status === 'chairman') && (
+                        <SelectItem value="chairman">Vorsitzender</SelectItem>
+                      )}
                       <SelectItem value="user">Benutzer</SelectItem>
                       <SelectItem value="blocked">Blockiert</SelectItem>
                     </SelectContent>

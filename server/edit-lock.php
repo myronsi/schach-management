@@ -24,7 +24,7 @@ try {
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
-    $currentUser = requireAuthentication(['admin']);
+    $currentUser = requireAuthentication(['admin', 'chairman']);
     $data = json_decode(file_get_contents('php://input'), true) ?: $_POST;
     $action = strtolower((string)($data['action'] ?? $_GET['action'] ?? ''));
     $entity = trim((string)($data['entity'] ?? $_GET['entity'] ?? ''));

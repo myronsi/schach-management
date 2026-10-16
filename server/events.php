@@ -48,7 +48,7 @@ try {
     };
 
     if (isWriteOperation($action)) {
-        $user = requireAuthentication(['admin']);
+        $user = requireAuthentication(['admin', 'chairman']);
         error_log("Authenticated user '{$user['username']}' performing action: $action");
     }
 

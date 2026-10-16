@@ -88,7 +88,7 @@ const Dashboard = () => {
       path: '/documents',
       color: 'bg-teal-50 border-teal-200 hover:bg-teal-100'
     },
-    ...(role === 'admin' ? [{
+    ...((role === 'admin' || role === 'chairman') ? [{
       title: 'Benutzer',
       description: 'Verwalten Sie Benutzerkonten',
       icon: UserCog,
@@ -104,7 +104,7 @@ const Dashboard = () => {
     }] : [])
   ];
   
-  const visiblePages = managementPages.filter(page => role === 'admin' || page.path === '/membership-applications');
+  const visiblePages = managementPages;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -155,15 +155,15 @@ const AppContent = () => {
     <div className="min-h-screen flex flex-col">
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/events" element={<ProtectedRoute roles={["admin"]}><EventsList /></ProtectedRoute>} />
-        <Route path="/news" element={<ProtectedRoute roles={["admin"]}><NewsAdmin /></ProtectedRoute>} />
-        <Route path="/history" element={<ProtectedRoute roles={["admin"]}><HistoryAdmin /></ProtectedRoute>} />
-        <Route path="/teams" element={<ProtectedRoute roles={["admin"]}><TeamsAdmin /></ProtectedRoute>} />
-        <Route path="/tournaments" element={<ProtectedRoute roles={["admin"]}><TournamentsAdmin /></ProtectedRoute>} />
-        <Route path="/media" element={<ProtectedRoute roles={["admin"]}><MediaAdmin /></ProtectedRoute>} />
-        <Route path="/fastinfo" element={<ProtectedRoute roles={["admin"]}><FastInfoAdmin /></ProtectedRoute>} />
-        <Route path="/documents" element={<ProtectedRoute roles={["admin"]}><DocumentsAdmin /></ProtectedRoute>} />
-        <Route path="/users" element={<ProtectedRoute roles={["admin"]}><UsersAdmin /></ProtectedRoute>} />
+        <Route path="/events" element={<ProtectedRoute roles={["admin", "chairman"]}><EventsList /></ProtectedRoute>} />
+        <Route path="/news" element={<ProtectedRoute roles={["admin", "chairman"]}><NewsAdmin /></ProtectedRoute>} />
+        <Route path="/history" element={<ProtectedRoute roles={["admin", "chairman"]}><HistoryAdmin /></ProtectedRoute>} />
+        <Route path="/teams" element={<ProtectedRoute roles={["admin", "chairman"]}><TeamsAdmin /></ProtectedRoute>} />
+        <Route path="/tournaments" element={<ProtectedRoute roles={["admin", "chairman"]}><TournamentsAdmin /></ProtectedRoute>} />
+        <Route path="/media" element={<ProtectedRoute roles={["admin", "chairman"]}><MediaAdmin /></ProtectedRoute>} />
+        <Route path="/fastinfo" element={<ProtectedRoute roles={["admin", "chairman"]}><FastInfoAdmin /></ProtectedRoute>} />
+        <Route path="/documents" element={<ProtectedRoute roles={["admin", "chairman"]}><DocumentsAdmin /></ProtectedRoute>} />
+        <Route path="/users" element={<ProtectedRoute roles={["admin", "chairman"]}><UsersAdmin /></ProtectedRoute>} />
         <Route path="/membership-applications" element={<ProtectedRoute roles={["chairman"]}><MembershipApplications /></ProtectedRoute>} />
         <Route 
           path="/dashboard" 
