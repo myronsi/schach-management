@@ -38,7 +38,6 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
   
-  // Check if current event has date range
   const hasDateRange = editForm.date?.includes(':') || event.date?.includes(':');
 
   const hasChanges = () => {

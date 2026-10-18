@@ -1,8 +1,4 @@
 <?php
-/**
- * Shared helpers for all API endpoints: config, CORS, JSON responses, DB access,
- * authentication, input validation and small security utilities.
- */
 
 require_once __DIR__ . '/vendor/autoload.php';
 
@@ -12,15 +8,9 @@ use Firebase\JWT\Key;
 const ROLE_RANK = ['blocked' => 0, 'user' => 1, 'admin' => 2, 'chairman' => 3];
 const EDITOR_ROLES = ['admin', 'chairman'];
 const TOKEN_LIFETIME_SECONDS = 8 * 24 * 60 * 60;
-// Renewal never extends a session beyond this age (counted from the original login).
 const MAX_SESSION_SECONDS = 30 * 24 * 60 * 60;
 
-// "Today", "tomorrow" etc. must follow the club's local time, not the host default (often UTC).
 date_default_timezone_set('Europe/Berlin');
-
-// ---------------------------------------------------------------------------
-// Responses / errors
-// ---------------------------------------------------------------------------
 
 function jsonResponse(array $data, int $status = 200): void {
     if (!headers_sent()) {
@@ -35,7 +25,6 @@ function jsonError(string $message, int $status = 400, array $extra = []): void 
     jsonResponse(array_merge(['success' => false, 'message' => $message], $extra), $status);
 }
 
-// Never leak exception details (DB host, SQL, paths) to clients.
 set_exception_handler(function (Throwable $e) {
     error_log(sprintf('[%s] %s: %s in %s:%d', $_SERVER['SCRIPT_NAME'] ?? 'cli', get_class($e), $e->getMessage(), $e->getFile(), $e->getLine()));
     if (PHP_SAPI === 'cli') {
@@ -45,16 +34,6 @@ set_exception_handler(function (Throwable $e) {
     jsonError('Interner Serverfehler', 500);
 });
 
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-/**
- * Directories searched for .env / .env.auth, most preferred first:
- *  1. SCHACH_CONFIG_DIR environment variable (e.g. SetEnv in the host config),
- *  2. "schach-config" next to the web root, i.e. outside the publicly served tree,
- *  3. the API directory itself (legacy location - only safe while .htaccess denies dotfiles).
- */
 function configDirs(): array {
     $dirs = [];
     $fromEnv = getenv('SCHACH_CONFIG_DIR');
@@ -105,7 +84,6 @@ function makePdo(string $host, string $database, int $port, string $user, string
     ]);
 }
 
-/** Database holding the users table (.env.auth). */
 function authDb(): PDO {
     static $pdo = null;
     if ($pdo === null) {
@@ -115,7 +93,6 @@ function authDb(): PDO {
     return $pdo;
 }
 
-/** Database holding the site content tables (.env). */
 function contentDb(): PDO {
     static $pdo = null;
     if ($pdo === null) {
@@ -124,10 +101,6 @@ function contentDb(): PDO {
     }
     return $pdo;
 }
-
-// ---------------------------------------------------------------------------
-// CORS
-// ---------------------------------------------------------------------------
 
 function allowedOriginHosts(): array {
     $raw = (string)(authEnv()['allowed_origins'] ?? '');
@@ -142,14 +115,11 @@ function allowedOriginHosts(): array {
 
 function isOriginAllowed(string $origin): bool {
     $allowed = allowedOriginHosts();
-    if (!$allowed) return true; // not configured: keep previous behaviour
+    if (!$allowed) return true;
     $host = strtolower((string)parse_url($origin, PHP_URL_HOST));
     return $host !== '' && in_array($host, $allowed, true);
 }
 
-/**
- * Emits CORS headers (only for allowed origins) and answers preflight requests.
- */
 function sendCorsHeaders(array $methods): void {
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
     header('Vary: Origin');
@@ -168,11 +138,6 @@ function sendCorsHeaders(array $methods): void {
     }
 }
 
-/**
- * Rejects requests whose Origin/Referer is not in allowed_origins.
- * Defence in depth against browser-based CSRF only - NOT an access control,
- * non-browser clients can send any header.
- */
 function requireAllowedDomain(): void {
     if (!allowedOriginHosts()) return;
     $candidate = $_SERVER['HTTP_ORIGIN'] ?? ($_SERVER['HTTP_REFERER'] ?? '');
@@ -181,11 +146,6 @@ function requireAllowedDomain(): void {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Request input
-// ---------------------------------------------------------------------------
-
-/** Decoded JSON body, falling back to form fields. */
 function requestBody(): array {
     static $body = null;
     if ($body === null) {
@@ -198,10 +158,6 @@ function requestBody(): array {
 function clientIp(): string {
     return (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
 }
-
-// ---------------------------------------------------------------------------
-// Authentication
-// ---------------------------------------------------------------------------
 
 function getTokenFromAuthHeader(): ?string {
     $authHeader = '';
@@ -235,7 +191,6 @@ function getTokenFromCustomHeader(): ?string {
     return $token !== '' ? $token : null;
 }
 
-/** Token from header, X-Auth-Token or the request body field "token" (used by sendBeacon). */
 function getRequestToken(): ?string {
     $token = getTokenFromAuthHeader() ?? getTokenFromCustomHeader();
     if ($token === null) {
@@ -245,18 +200,10 @@ function getRequestToken(): ?string {
     return $token;
 }
 
-/**
- * Fingerprint of the stored password hash. Tokens carry it, so every password change or reset
- * invalidates all tokens issued before it. Keyed with the JWT secret; never reveals the hash.
- */
 function passwordFingerprint(string $passwordHash): string {
     return substr(hash_hmac('sha256', $passwordHash, jwtSecret()), 0, 16);
 }
 
-/**
- * @param array $user row with username, status and password (hash)
- * @param int|null $authTime original login time; kept across renewals to cap the session age
- */
 function generateJWT(array $user, ?int $authTime = null): string {
     $issuedAt = time();
     return JWT::encode([
@@ -271,7 +218,6 @@ function generateJWT(array $user, ?int $authTime = null): string {
     ], jwtSecret(), 'HS256');
 }
 
-/** @return array|null decoded claims or null when invalid/expired */
 function decodeJWT(string $token): ?array {
     try {
         $claims = (array)JWT::decode($token, new Key(jwtSecret(), 'HS256'));
@@ -288,10 +234,6 @@ function fetchUserRow(string $username): ?array {
     return $row ?: null;
 }
 
-/**
- * Checks a decoded token against the current user row.
- * @return string|null error message, or null when the token is still valid for this user
- */
 function tokenRejectionReason(array $claims, ?array $row): ?string {
     if ($row === null) return 'Invalid or expired token';
     if (!isset($claims['pwv']) || !is_string($claims['pwv'])
@@ -304,12 +246,6 @@ function tokenRejectionReason(array $claims, ?array $row): ?string {
     return null;
 }
 
-/**
- * Validates the bearer token AND re-checks the user's current status in the database,
- * so demoted, blocked or deleted users lose access immediately.
- *
- * @return array token claims with 'status' replaced by the current DB status
- */
 function requireAuthentication(array $requiredPermissions = ['admin']): array {
     $token = getRequestToken();
     if ($token === null) {
@@ -335,17 +271,12 @@ function requireEditor(): array {
     return requireAuthentication(EDITOR_ROLES);
 }
 
-// ---------------------------------------------------------------------------
-// Rate limiting (file based, no schema needed)
-// ---------------------------------------------------------------------------
-
 function rateLimitDir(): string {
     $dir = rtrim(sys_get_temp_dir(), '/\\') . '/schach-api-ratelimit';
     if (!is_dir($dir)) @mkdir($dir, 0700, true);
     return $dir;
 }
 
-/** Number of hits recorded for $key inside the window. */
 function rateLimitCount(string $key, int $windowSeconds): int {
     $file = rateLimitDir() . '/' . hash('sha256', $key);
     if (!is_file($file)) return 0;
@@ -373,23 +304,11 @@ function rateLimitClear(string $key): void {
     @unlink(rateLimitDir() . '/' . hash('sha256', $key));
 }
 
-// ---------------------------------------------------------------------------
-// Content helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Returns the next free id for $table. Must be called inside a transaction;
- * the FOR UPDATE lock serialises concurrent creates on InnoDB.
- */
 function nextId(PDO $pdo, string $table): int {
     $stmt = $pdo->query("SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM `$table` FOR UPDATE");
     return max(1, (int)$stmt->fetchColumn());
 }
 
-/**
- * Runs $insert(int $id) with a server-assigned id inside a transaction.
- * @return int the new id
- */
 function insertWithNextId(PDO $pdo, string $table, callable $insert): int {
     for ($attempt = 0; $attempt < 3; $attempt++) {
         $pdo->beginTransaction();
@@ -400,15 +319,12 @@ function insertWithNextId(PDO $pdo, string $table, callable $insert): int {
             return $id;
         } catch (PDOException $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
-            if ($e->getCode() !== '23000' || $attempt === 2) throw $e; // retry only duplicate key
+            if ($e->getCode() !== '23000' || $attempt === 2) throw $e;
         }
     }
     throw new RuntimeException('unreachable');
 }
 
-/**
- * Refuses a write when another user currently holds the edit lock for the entry.
- */
 function assertNotLockedByOther(PDO $pdo, string $entity, $entityId, array $user): void {
     try {
         $stmt = $pdo->prepare('SELECT username, expires_at FROM edit_locks WHERE entity = ? AND entity_id = ? AND expires_at > UTC_TIMESTAMP() LIMIT 1');
@@ -416,7 +332,7 @@ function assertNotLockedByOther(PDO $pdo, string $entity, $entityId, array $user
         $lock = $stmt->fetch();
     } catch (PDOException $e) {
         error_log('edit lock check failed: ' . $e->getMessage());
-        return; // lock table unavailable: fall back to optimistic conflict check
+        return;
     }
     if ($lock && $lock['username'] !== ($user['username'] ?? null)) {
         jsonError(
@@ -427,12 +343,6 @@ function assertNotLockedByOther(PDO $pdo, string $entity, $entityId, array $user
     }
 }
 
-/**
- * Resolves a user-supplied relative directory below $baseDir.
- * Rejects absolute paths, "..", "." and empty segments, backslashes and control characters.
- *
- * @return string|null absolute path (may not exist yet) or null if unsafe
- */
 function safeSubPath(string $baseDir, string $relative): ?string {
     $relative = trim($relative);
     if ($relative === '' || preg_match('/[\x00-\x1f\\\\]/', $relative)) return null;
@@ -445,7 +355,6 @@ function safeSubPath(string $baseDir, string $relative): ?string {
     if ($base === false) return null;
     $full = $base . '/' . $relative;
 
-    // Resolve the deepest existing ancestor to defend against symlinks pointing outside.
     $probe = $full;
     while (!file_exists($probe) && $probe !== $base) {
         $probe = dirname($probe);
@@ -457,7 +366,6 @@ function safeSubPath(string $baseDir, string $relative): ?string {
     return $full;
 }
 
-/** Accepts http(s) URLs, root-relative paths and (optionally) mailto/tel. Returns '' for unsafe values. */
 function sanitizeUrl(?string $url, bool $allowMailTel = false): string {
     $url = trim((string)$url);
     if ($url === '') return '';
@@ -467,14 +375,10 @@ function sanitizeUrl(?string $url, bool $allowMailTel = false): string {
     $scheme = strtolower((string)parse_url($url, PHP_URL_SCHEME));
     if (in_array($scheme, ['http', 'https'], true)) return $url;
     if ($allowMailTel && in_array($scheme, ['mailto', 'tel'], true)) return $url;
-    if ($scheme === '' && !str_contains($url, ':')) return $url; // plain relative path like "photos/x.jpg"
+    if ($scheme === '' && !str_contains($url, ':')) return $url;
     return '';
 }
 
-/**
- * Allow-list HTML sanitiser for rich text (news content, team description).
- * The public website renders these fields with dangerouslySetInnerHTML.
- */
 function sanitizeHtml(?string $html): string {
     $html = (string)$html;
     if (trim($html) === '') return '';
@@ -518,7 +422,6 @@ function sanitizeHtml(?string $html): string {
                 continue;
             }
             if (!in_array($tag, $allowedTags, true)) {
-                // unwrap: keep the (sanitised) children, drop the element itself
                 $walk($child);
                 while ($child->firstChild) $node->insertBefore($child->firstChild, $child);
                 $node->removeChild($child);

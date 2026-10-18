@@ -22,7 +22,6 @@ export const filterOptions = [
 ];
 
 export const filterEvents = (eventsToFilter: Event[], filter: FilterType) => {
-  // Local date (yyyy-MM-dd). toISOString() would yield the previous day for local midnight in CET/CEST.
   const todayStr = todayLocal();
 
   switch (filter) {

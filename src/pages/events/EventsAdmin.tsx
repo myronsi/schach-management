@@ -21,7 +21,6 @@ import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 
 const API = apiUrl('events.php');
 
-/** Events as returned by the API, tagged with the filter they were fetched for. */
 interface LoadedEvents {
   filter: FilterType;
   events: Event[];
@@ -40,8 +39,6 @@ const EventsList: React.FC = () => {
   const { showAlert, alertProps } = useAlertDialog();
   const { showConfirm, confirmProps } = useConfirmDialog();
 
-  // Each load gets a sequence number and an AbortController so that a slow response for a
-  // previously selected filter can never overwrite the result of the current one.
   const requestSeqRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const currentFilterRef = useRef<FilterType>(currentFilter);
@@ -64,7 +61,7 @@ const EventsList: React.FC = () => {
     try {
       const res = await fetch(`${API}?action=${action}`, { signal: controller.signal });
       const data = await readJson<{ events?: Event[] }>(res);
-      if (seq !== requestSeqRef.current) return; // stale response
+      if (seq !== requestSeqRef.current) return;
       if (!res.ok || data.success === false) {
         setLoaded({ filter: filterToUse, events: [], failed: true });
         showAlert('Fehler', data.message || `Ereignisse konnten nicht geladen werden (HTTP ${res.status}).`, 'error');
@@ -97,8 +94,6 @@ const EventsList: React.FC = () => {
     return () => abortRef.current?.abort();
   }, [loadEvents]);
 
-  // Only show data that was fetched for the selected filter; while the response for a newly selected
-  // filter is pending, the old dataset is not re-filtered (which would briefly show "Keine Ereignisse").
   const isCurrent = loaded !== null && loaded.filter === currentFilter;
   const events = useMemo(() => (isCurrent ? loaded.events : []), [isCurrent, loaded]);
   const filteredEvents = useMemo(() => filterEvents(events, currentFilter), [events, currentFilter]);
@@ -139,7 +134,6 @@ const EventsList: React.FC = () => {
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Ereignisse</h1>
             <div className="flex flex-wrap gap-2">
-              {/* Filter Dropdown */}
               <Popover open={filterOpen} onOpenChange={setFilterOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -267,7 +261,6 @@ const EventsList: React.FC = () => {
         </div>
       </div>
       
-      {/* Dialog Components */}
       <AlertMessage {...alertProps} />
       
       <ConfirmDialog

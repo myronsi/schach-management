@@ -68,20 +68,17 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
   const [isSubmitting, setIsSubmitting] = useState(false);
   const closeTimerRef = useRef<number | null>(null);
 
-  // Never let a pending auto-close fire after the dialog content has been unmounted (closed).
   useEffect(() => () => {
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
   }, []);
   
   const { showAlert, alertProps } = useAlertDialog();
   const { showConfirm, confirmProps } = useConfirmDialog();
-  
-  
+
   const watchDeleteMode = watch("deleteMode");
   const needsTitle = watchDeleteMode === "upcomingTitle";
   const needsDate = watchDeleteMode === "allOnDay";
   const needsRange = watchDeleteMode === 'range';
-  // Compare the calendar days (yyyy-MM-dd strings sort chronologically).
   const rangeInvalid = Boolean(
     needsRange && selectedStartDate && selectedEndDate &&
     formatDateForAPI(selectedStartDate) > formatDateForAPI(selectedEndDate)

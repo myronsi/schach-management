@@ -41,7 +41,6 @@ interface DocumentWizardProps {
   onClearScanned: () => void;
   onSubmit: () => void;
   onCancel: () => void;
-  /** True while the save request is running; disables the submit button. */
   submitting?: boolean;
 }
 
@@ -84,7 +83,6 @@ export const DocumentWizard: React.FC<DocumentWizardProps> = ({
     onCancel();
   };
 
-  // Start at the first step again whenever the dialog is closed (also after a successful save).
   useEffect(() => {
     if (!open) {
       setStep(1);
@@ -233,7 +231,6 @@ export const DocumentWizard: React.FC<DocumentWizardProps> = ({
         </DialogHeader>
 
         <div className="py-4">
-          {/* Step 1: Basic Info */}
           {step === 1 && (
             <DocumentBasicInfo
               form={form}
@@ -241,7 +238,6 @@ export const DocumentWizard: React.FC<DocumentWizardProps> = ({
             />
           )}
 
-          {/* Step 2: Choose Method */}
           {step === 2 && (
             <DocumentSourceMethod
               selectedMethod={selectedMethod}
@@ -249,7 +245,6 @@ export const DocumentWizard: React.FC<DocumentWizardProps> = ({
             />
           )}
 
-          {/* Step 3: Execute chosen method */}
           {step === 3 && selectedMethod === 'upload' && (
             <DocumentSourceUpload
               form={form}
@@ -280,7 +275,6 @@ export const DocumentWizard: React.FC<DocumentWizardProps> = ({
             />
           )}
 
-          {/* Step 4: Review */}
           {step === 4 && (
             <DocumentReview
               form={form}

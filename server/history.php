@@ -14,12 +14,10 @@ if ($method !== 'GET') {
     $user = requireEditor();
 }
 
-/** Same formats the admin form accepts: yyyy, yyyy.mm, yyyy.mm.dd, yyyy-yyyy, yyyy.mm.dd-mm.dd */
 function isValidHistoryDate(string $date): bool {
     return preg_match('/^\d{4}(\.\d{2}(\.\d{2}(-\d{2}\.\d{2})?)?|-\d{4})?$/', $date) === 1;
 }
 
-/** History ids are string timestamps in milliseconds (legacy format, kept for compatibility). */
 function newHistoryId(PDO $pdo): string {
     $check = $pdo->prepare('SELECT 1 FROM history WHERE id = ? LIMIT 1');
     $base = (int)floor(microtime(true) * 1000);

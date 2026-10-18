@@ -40,7 +40,6 @@ export const DocumentsHeader: React.FC<DocumentsHeaderProps> = ({
     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
       <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dokumente</h1>
       <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-        {/* Show Inactive Toggle */}
         <Button
           variant={showInactive ? "default" : "outline"}
           onClick={() => onShowInactiveChange(!showInactive)}
@@ -59,7 +58,6 @@ export const DocumentsHeader: React.FC<DocumentsHeaderProps> = ({
           )}
         </Button>
 
-        {/* Search Input */}
         <div className="relative w-full sm:w-64">
           <Input
             placeholder="Suchen..."
@@ -77,7 +75,6 @@ export const DocumentsHeader: React.FC<DocumentsHeaderProps> = ({
           )}
         </div>
 
-        {/* Filter Dropdown */}
         <Popover open={filterOpen} onOpenChange={onFilterOpenChange}>
           <PopoverTrigger asChild>
             <Button

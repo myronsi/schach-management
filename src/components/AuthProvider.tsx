@@ -27,14 +27,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setRole(null);
   }, []);
 
-  /** The session ended without an explicit logout (401 from the API, logout in another tab). */
   const endExpiredSession = useCallback((message: string, removeToken = true) => {
     if (removeToken) authToken.remove();
     clearSession();
     setSessionExpiredMessage(message);
   }, [clearSession]);
 
-  /** Keeps the user signed in based on the (locally unexpired) token claims, e.g. while the server is unreachable. */
   const restoreSessionFromToken = useCallback((token: string) => {
     const tokenRole = jwtUtils.getStatus(token);
     if (!jwtUtils.isExpired(token) && tokenRole && ADMIN_ROLES.includes(tokenRole)) {
@@ -75,14 +73,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     if (!isAuthenticated) return;
 
     const onExpired = () => endExpiredSession('Ihre Sitzung ist abgelaufen oder wurde beendet. Bitte melden Sie sich erneut an.');
-    // Another tab logged out or signed in as someone else: follow it instead of failing every request.
     const onStorage = (event: StorageEvent) => {
       if (event.key !== null && event.key !== authToken.STORAGE_KEY) return;
       const current = authToken.get();
       if (!current) {
         endExpiredSession('Sie wurden in einem anderen Tab abgemeldet.');
       } else if (jwtUtils.getUsername(current) !== username) {
-        // Keep the other tab's token; this tab just stops acting as the previous user.
         endExpiredSession('In einem anderen Tab wurde ein anderer Benutzer angemeldet. Bitte erneut anmelden.', false);
       }
     };
@@ -98,8 +94,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     if (!isAuthenticated) return;
 
     const interval = setInterval(async () => {
-      // autoRenew() only reports failure if the token is expired or was explicitly rejected;
-      // network/server errors keep the session and are retried on the next tick.
       const stillValid = await authToken.autoRenew();
       if (!stillValid) {
         await logout();
@@ -152,7 +146,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           setUsername(jwtUtils.getUsername(savedToken));
           setRole(data.status);
         } else {
-          // Explicit rejection (invalid token or insufficient rights).
           authToken.remove();
           clearSession();
         }

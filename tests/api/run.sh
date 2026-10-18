@@ -1,6 +1,4 @@
 #!/bin/sh
-# Runs the API integration tests against throwaway local containers (MariaDB + PHP built-in server).
-# Usage: tests/api/run.sh [php-version]   (default 8.0). Requires docker and node >= 18.
 set -e
 cd "$(dirname "$0")"
 TEST_DIR="$(pwd)"

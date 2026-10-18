@@ -15,18 +15,15 @@ export interface RichTextEditorProps {
   forceLTR?: boolean;
 }
 
-// Links opened in a new tab must not get access to window.opener.
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (node instanceof Element && node.tagName === 'A' && node.getAttribute('target') === '_blank') {
     node.setAttribute('rel', 'noopener noreferrer');
   }
 });
 
-/** Sanitizes HTML before it is written into the editable DOM (prevents stored XSS). */
 const sanitizeHtml = (html: string): string =>
   DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
 
-/** Only web, mail, phone, site-relative (/...) and in-page anchor (#...) links are allowed. */
 const SAFE_URL_PATTERN = /^(?:https?:\/\/|mailto:|tel:|\/(?!\/)|#)/i;
 
 const hasControlCharacters = (value: string) =>
@@ -41,7 +38,6 @@ const isSafeLinkUrl = (url: string): boolean => {
   return SAFE_URL_PATTERN.test(trimmed);
 };
 
-/** Applies href/target and a safe rel to a link element. */
 const applyLinkAttributes = (link: HTMLAnchorElement, href: string, target: string, classes: string) => {
   link.setAttribute('href', href);
   link.setAttribute('target', target);
@@ -127,7 +123,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const [linkTarget, setLinkTarget] = React.useState('_blank');
   const [linkClasses, setLinkClasses] = React.useState('underline hover:text-club-accent hover:underline');
   const [savedSelection, setSavedSelection] = React.useState<Range | null>(null);
-  // True when the link dialog edits an existing <a> (vs. inserting a new link).
   const [editingExistingLink, setEditingExistingLink] = React.useState(false);
   const linkUrlInvalid = linkUrl.trim() !== '' && !isSafeLinkUrl(linkUrl);
 
@@ -205,7 +200,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     try {
       document.execCommand(cmd);
     } catch {
-      // Fallback implementation
       const sel = document.getSelection();
       if (!sel || sel.rangeCount === 0) return;
       const range = sel.getRangeAt(0);
@@ -217,7 +211,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         listEl.appendChild(listItem);
         range.insertNode(listEl);
       } catch {
-        // If extraction fails, just create an empty list item
         listEl.appendChild(listItem);
         range.insertNode(listEl);
       }
@@ -404,15 +397,13 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           const el = contentRef.current;
           if (!el) return;
           stripBidiMarksFromElementPreserveCaret(el);
-          // Typed, pasted or dropped content is sanitized before it leaves the editor.
           onChange(sanitizeHtml(el.innerHTML.replace(/[\u200E\u200F\u202A-\u202E]/g, '')));
         }}
         onPaste={(e) => {
           const html = e.clipboardData.getData('text/html');
-          if (!html) return; // plain text paste: let the browser insert it as text
+          if (!html) return;
           e.preventDefault();
           const clean = sanitizeHtml(html);
-          // insertHTML keeps the undo stack and fires an input event (which calls onChange).
           if (document.execCommand('insertHTML', false, clean)) return;
           const el = contentRef.current;
           const sel = document.getSelection();

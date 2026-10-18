@@ -23,11 +23,6 @@ export class EditLockError extends Error {
   }
 }
 
-/**
- * Thrown by `acquire()` when the lock was obtained but is no longer wanted because the component
- * unmounted, `release()` was called, or another `acquire()` started in the meantime. The freshly
- * obtained lock has already been released again; callers should silently abort.
- */
 export class EditLockCancelledError extends Error {
   constructor() {
     super('Edit lock request was cancelled');
@@ -74,11 +69,8 @@ async function lockRequest(action: 'release' | 'heartbeat', entity: string, enti
   }
 }
 
-/** Releases a lock while the page is being unloaded; fetch() is not reliable at that point. */
 function releaseWithBeacon(entity: string, entityId: string, lockToken: string) {
   if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return;
-  // text/plain keeps this a "simple" CORS request (no preflight); the auth token travels in the body
-  // because sendBeacon cannot set an Authorization header.
   const body = JSON.stringify({
     action: 'release',
     entity,
@@ -92,9 +84,7 @@ function releaseWithBeacon(entity: string, entityId: string, lockToken: string) 
 export function useEditLock(entity: string) {
   const lockRef = useRef<{ id: string; token: string } | null>(null);
   const mountedRef = useRef(true);
-  // Incremented by every acquire()/release() so that a slow acquire can detect it is stale.
   const generationRef = useRef(0);
-  // The heartbeat only runs while a lock is held, so idle hook instances (e.g. one per EventCard) cost nothing.
   const heartbeatTimerRef = useRef<number | null>(null);
 
   const stopHeartbeat = useCallback(() => {
@@ -127,10 +117,6 @@ export function useEditLock(entity: string) {
     heartbeatTimerRef.current = window.setInterval(() => { void heartbeat(); }, HEARTBEAT_INTERVAL_MS);
   }, [heartbeat, stopHeartbeat]);
 
-  /**
-   * Releases the held lock. With `entityId`, only releases if the held lock belongs to that entity
-   * (and leaves a concurrently running acquire() for another entity untouched).
-   */
   const release = useCallback(async (entityId?: string | number) => {
     if (entityId !== undefined && lockRef.current?.id !== String(entityId)) return;
     generationRef.current += 1;
@@ -146,7 +132,6 @@ export function useEditLock(entity: string) {
     const generation = ++generationRef.current;
     const result = await acquireEditLock(entity, id);
     if (!mountedRef.current || generation !== generationRef.current) {
-      // The hook unmounted or release()/acquire() was called while we were waiting: give the lock back.
       void lockRequest('release', entity, id, result.token);
       throw new EditLockCancelledError();
     }
@@ -155,14 +140,12 @@ export function useEditLock(entity: string) {
     return result;
   }, [entity, release, startHeartbeat]);
 
-  /** True while this hook holds the lock for `entityId`. */
   const isHeld = useCallback((entityId: string | number) => lockRef.current?.id === String(entityId), []);
 
   useEffect(() => {
     mountedRef.current = true;
 
     const releaseOnExit = (event: PageTransitionEvent) => {
-      // A page entering the back/forward cache may be restored later; keep the lock in that case.
       if (event.persisted) return;
       const lock = lockRef.current;
       if (!lock) return;
@@ -172,7 +155,6 @@ export function useEditLock(entity: string) {
     };
 
     const refreshOnRestore = (event: PageTransitionEvent) => {
-      // Restored from the back/forward cache: the lock may have expired meanwhile, check it right away.
       if (event.persisted && lockRef.current) void heartbeat();
     };
 
@@ -195,13 +177,6 @@ export function useEditLock(entity: string) {
 
 export type EditLockHandle = Pick<ReturnType<typeof useEditLock>, 'acquire' | 'release' | 'isHeld'>;
 
-/**
- * Acquires the edit lock for `entityId` and then runs `load` (typically fetching the fresh row).
- * If `load` fails, the lock is released again and the error is rethrown, so a failed load can never
- * leave a lock that the heartbeat keeps alive. Errors from `acquire()` (EditLockError,
- * EditLockCancelledError, ...) propagate unchanged. If the lock was released or replaced while
- * loading (e.g. another entry was opened or the component unmounted), EditLockCancelledError is thrown.
- */
 export async function openWithLock<T>(editLock: EditLockHandle, entityId: string | number, load: () => Promise<T>): Promise<T> {
   await editLock.acquire(entityId);
   let result: T;

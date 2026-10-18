@@ -22,7 +22,6 @@ try {
         jsonError('Invalid entity', 400);
     }
 
-    // Expired locks are never considered active.
     $pdo->exec('DELETE FROM edit_locks WHERE expires_at <= UTC_TIMESTAMP()');
 
     if ($action === 'acquire') {

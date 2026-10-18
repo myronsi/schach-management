@@ -67,15 +67,10 @@ const HistoryAdmin: React.FC = () => {
     if (!dateStr || dateStr.trim() === '') return false;
     const trimmed = dateStr.trim();
     
-    // yyyy.mm.dd
     if (/^\d{4}\.\d{2}\.\d{2}$/.test(trimmed)) return true;
-    // yyyy.mm
     if (/^\d{4}\.\d{2}$/.test(trimmed)) return true;
-    // yyyy-yyyy
     if (/^\d{4}-\d{4}$/.test(trimmed)) return true;
-    // yyyy.mm.dd-mm.dd (same year, different month/day range)
     if (/^\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}$/.test(trimmed)) return true;
-    // yyyy
     if (/^\d{4}$/.test(trimmed)) return true;
     
     return false;
@@ -133,7 +128,6 @@ const HistoryAdmin: React.FC = () => {
       payload.id = editing.id;
       if (editing.updated_at) payload.expected_updated_at = editing.updated_at;
     } else {
-      // New entries get their id from the server.
       delete payload.id;
     }
     createUpdate.mutate(payload);

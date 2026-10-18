@@ -13,7 +13,6 @@ import { useConfirmDialog } from '@/hooks/useDialogs';
 
 const API = apiUrl('membership-applications.php');
 
-/** List entries only carry what the overview shows; bank data and signatures are loaded per application. */
 interface ApplicationSummary {
   id: number;
   status: 'submitted' | 'approved' | 'rejected';

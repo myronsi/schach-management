@@ -11,7 +11,6 @@ interface MediaCardProps {
   media: MediaItem;
   onEdit: (item: MediaItem) => void;
   onDelete: (item: MediaItem) => void;
-  /** True while a delete request for this item is running. */
   deleting?: boolean;
 }
 

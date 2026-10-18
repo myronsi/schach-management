@@ -6,7 +6,7 @@ require_once __DIR__ . '/audit.php';
 sendCorsHeaders(['GET', 'POST', 'DELETE']);
 
 const TEAM_COLUMNS = 'id, name, league, image, url, captain, contact, nextMatch, venue, record, squad, notes, founded, updated_at, updated_by';
-const TEAM_DESCRIPTION_ID = 0; // row 0 holds the rich-text description of the teams page
+const TEAM_DESCRIPTION_ID = 0;
 
 $pdo = contentDb();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -15,7 +15,6 @@ if ($method !== 'GET') {
     $user = requireEditor();
 }
 
-/** Accepts a JSON string or array and returns normalised JSON, or null when invalid. */
 function normalizeJson($value, string $default): ?string {
     if ($value === null || $value === '') return $default;
     if (is_array($value)) return json_encode($value, JSON_UNESCAPED_UNICODE);

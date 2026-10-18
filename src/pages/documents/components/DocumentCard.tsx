@@ -12,7 +12,6 @@ interface DocumentCardProps {
   item: DocumentItem;
   onEdit: (item: DocumentItem) => void;
   onDelete: (item: DocumentItem) => void;
-  /** True while a delete request for this document is running. */
   deleting?: boolean;
 }
 

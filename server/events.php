@@ -8,7 +8,6 @@ sendCorsHeaders(['GET', 'POST']);
 const EVENT_READ_ACTIONS = ['list', 'get', 'upcoming', 'past', 'month'];
 const EVENT_FIELDS = ['title', 'date', 'time', 'location', 'description', 'type', 'is_recurring'];
 
-/** Event dates are "YYYY-MM-DD" or a range "YYYY-MM-DD:YYYY-MM-DD". */
 function isValidEventDate($value): bool {
     if (!is_string($value)) return false;
     $parts = explode(':', $value);
@@ -19,13 +18,8 @@ function isValidEventDate($value): bool {
     return count($parts) === 1 || $parts[0] <= $parts[1];
 }
 
-/** SQL expression for an event's start day ("2026-05-01" for both "2026-05-01" and "2026-05-01:2026-05-03"). */
 const EVENT_START_SQL = "SUBSTRING_INDEX(date, ':', 1)";
 
-/**
- * Validates the fields of a partial update. Only known fields are kept; empty values are skipped
- * (the edit dialogs send only what should change), except is_recurring which may be 0.
- */
 function normalizeEventUpdates($updates, array $allowed): array {
     if (!is_array($updates)) jsonError('Ungültige Änderungen', 400);
     $fields = [];
@@ -45,7 +39,6 @@ function normalizeEventUpdates($updates, array $allowed): array {
     return $fields;
 }
 
-/** Optional YYYY-MM-DD request value; responds 400 when present but malformed. */
 function optionalDate($value, string $label): ?string {
     if ($value === null || $value === '') return null;
     if (!is_string($value) || !isValidDate($value)) jsonError('Ungültiges Datum: ' . $label, 400);
@@ -86,7 +79,6 @@ try {
         return [trim($dateStr), null];
     };
 
-    // Everything that is not an explicit read action needs an editor - including unknown actions.
     $user = null;
     if (!in_array($action, EVENT_READ_ACTIONS, true)) {
         if ($method !== 'POST') jsonError('Method not allowed', 405);
@@ -240,7 +232,6 @@ try {
                     $startDate = date('Y-m-d');
                 }
 
-                // Multi-day events ("start:end") are matched by their start day.
                 $where = 'title = ? AND ' . EVENT_START_SQL . ' >= ?';
                 $whereParams = [$title, $startDate];
                 if ($endDate) {
@@ -364,7 +355,6 @@ try {
                     $endDate = optionalDate($endDate, 'end_date');
                     if ($startDate > $endDate) jsonError('Startdatum liegt nach dem Enddatum', 400);
 
-                    // Multi-day events are matched by their start day.
                     $rangeWhere = EVENT_START_SQL . ' >= ? AND ' . EVENT_START_SQL . ' <= ?';
                     $beforeStmt = $pdo->prepare("SELECT * FROM events WHERE $rangeWhere");
                     $beforeStmt->execute([$startDate, $endDate]);

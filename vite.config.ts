@@ -13,11 +13,6 @@ const originOf = (url: string | undefined): string | null => {
   }
 };
 
-/**
- * Production builds get a Content-Security-Policy meta tag. The auth token lives in localStorage,
- * so the policy limits what injected script could do: no inline/foreign scripts, and requests only
- * to the app itself and the configured API/site origins.
- */
 const contentSecurityPolicy = (env: Record<string, string>): Plugin => {
   const apiBase = env.VITE_API_BASE || DEFAULT_API_BASE;
   const apiOrigin = originOf(apiBase);
@@ -26,10 +21,8 @@ const contentSecurityPolicy = (env: Record<string, string>): Plugin => {
   const policy = [
     "default-src 'self'",
     "script-src 'self'",
-    // Radix/shadcn set inline style attributes; fonts come from Google Fonts (src/index.css).
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
-    // Images/videos may be external URLs entered by editors, plus local previews (blob:/data:).
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob: https:",
     `connect-src 'self' ${remote}`,
@@ -48,7 +41,6 @@ const contentSecurityPolicy = (env: Record<string, string>): Plugin => {
   };
 };
 
-// https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   return {

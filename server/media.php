@@ -7,7 +7,6 @@ require_once __DIR__ . '/files.php';
 sendCorsHeaders(['GET', 'POST', 'DELETE']);
 
 const MEDIA_COLUMNS = 'id, src, title, description, children, updated_at, updated_by';
-// No SVG: it can carry scripts and would be served from the site's own origin.
 const MEDIA_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'pdf'];
 
 $uploadBaseDir = dirname(__DIR__) . '/photos';
@@ -20,7 +19,6 @@ if ($method !== 'GET' || $action === 'scan') {
     $user = requireEditor();
 }
 
-/** All file paths (src + children) referenced by a media row. */
 function mediaReferencedPaths(array $row): array {
     $paths = [];
     if (!empty($row['src'])) $paths[] = $row['src'];
@@ -36,14 +34,12 @@ function mediaReferencedPaths(array $row): array {
     return array_values(array_unique($paths));
 }
 
-/** True when another media row still references $path. */
 function mediaPathReferencedElsewhere(PDO $pdo, string $path, int $exceptId): bool {
     $stmt = $pdo->prepare('SELECT id FROM media WHERE id <> ? AND (src = ? OR children LIKE ?) LIMIT 1');
     $stmt->execute([$exceptId, $path, '%' . addcslashes(json_encode($path, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), '%_\\') . '%']);
     return (bool)$stmt->fetch();
 }
 
-/** Validates the children payload and returns it as JSON. */
 function normalizeChildren($children): string {
     if ($children === null || $children === '') return '[]';
     if (is_string($children)) {
@@ -147,7 +143,6 @@ if ($method === 'DELETE') {
     $filePaths = mediaReferencedPaths($before);
     $removedFiles = [];
     if ($stmt->rowCount()) {
-        // Delete files only after the row is gone, and only if nothing else still uses them.
         foreach ($filePaths as $filePath) {
             $removedFiles[$filePath] = !mediaPathReferencedElsewhere($pdo, $filePath, $id)
                 && removeFileBelow($filePath, 'photos', $uploadBaseDir);

@@ -25,10 +25,6 @@ function publicUser(?array $row): ?array {
     return $row;
 }
 
-/**
- * The chairman may manage everyone. Admins may manage accounts ranked below them (and edit their
- * own record), but never another admin's or the chairman's account.
- */
 function assertMayManage(array $currentUser, ?array $target): void {
     if (!$target || $currentUser['status'] === 'chairman') return;
     if ($target['username'] === $currentUser['username']) return;
@@ -58,7 +54,7 @@ if ($method === 'POST') {
     $data = requestBody();
 
     $usernameValue = trim((string)($data['username'] ?? ''));
-    $passwordValue = (string)($data['password'] ?? ''); // never trim passwords
+    $passwordValue = (string)($data['password'] ?? '');
     $statusValue = trim((string)($data['status'] ?? 'user'));
     $passwordStatusValue = trim((string)($data['password_status'] ?? 'unchanged'));
     $firstNameValue = isset($data['first_name']) ? trim((string)$data['first_name']) : '';
@@ -86,7 +82,6 @@ if ($method === 'POST') {
     $existing = fetchManagedUser($pdo, $usernameValue);
 
     if (!$isUpdate && $existing) {
-        // A create must never silently overwrite an existing account.
         jsonError('Username already exists', 409);
     }
 
@@ -98,7 +93,6 @@ if ($method === 'POST') {
         if ($isSelf && $statusValue !== $existing['status']) {
             jsonError('Den eigenen Status kann man nicht ändern', 403);
         }
-        // Omitted name fields keep their current value instead of being blanked.
         if (!array_key_exists('first_name', $data)) $firstNameValue = (string)($existing['first_name'] ?? '');
         if (!array_key_exists('last_name', $data)) $lastNameValue = (string)($existing['last_name'] ?? '');
 
@@ -110,7 +104,6 @@ if ($method === 'POST') {
             $existingPassword = (string)$existing['password'];
             $info = password_get_info($existingPassword);
             if ($existingPassword !== '' && ($info['algo'] === null || $info['algo'] === 0)) {
-                // Legacy plaintext password: hash it while we're here.
                 $stmt = $pdo->prepare('UPDATE users SET password = ?, status = ?, password_status = ?, first_name = ?, last_name = ? WHERE username = ?');
                 $stmt->execute([password_hash($existingPassword, PASSWORD_DEFAULT), $statusValue, $passwordStatusValue, $firstNameValue, $lastNameValue, $usernameValue]);
             } else {

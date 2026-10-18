@@ -16,10 +16,6 @@ export interface ConfirmDialogState {
   onConfirm: () => void;
 }
 
-/**
- * State + helper for the shared <AlertMessage> dialog.
- * Usage: `const { showAlert, alertProps } = useAlertDialog();` … `<AlertMessage {...alertProps} />`
- */
 export function useAlertDialog() {
   const [alertDialog, setAlertDialog] = useState<AlertDialogState>({
     open: false,
@@ -42,10 +38,6 @@ export function useAlertDialog() {
   };
 }
 
-/**
- * State + helper for the shared <ConfirmDialog>.
- * Usage: `const { showConfirm, confirmProps } = useConfirmDialog();` … `<ConfirmDialog {...confirmProps} />`
- */
 export function useConfirmDialog() {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({
     open: false,

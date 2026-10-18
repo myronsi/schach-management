@@ -5,19 +5,17 @@ require_once __DIR__ . '/audit.php';
 
 sendCorsHeaders(['GET', 'POST', 'PATCH', 'DELETE']);
 
-const APPLICATION_RATE_LIMIT = 5;          // submissions per IP ...
-const APPLICATION_RATE_WINDOW = 60 * 60;   // ... per hour
+const APPLICATION_RATE_LIMIT = 5;
+const APPLICATION_RATE_WINDOW = 60 * 60;
 const APPLICATION_MAX_FIELD_LENGTH = 255;
 const APPLICATION_SIGNATURE_FIELDS = ['signature', 'guardian_signature', 'debit_signature'];
 const APPLICATION_REQUIRED_FIELDS = [
     'first_name', 'last_name', 'address', 'postal_city', 'birth_date', 'email', 'nationality',
     'gender', 'membership_type', 'application_place', 'application_date', 'signature',
 ];
-// The list view only gets what it needs; bank details and signatures are loaded per application.
 const APPLICATION_LIST_COLUMNS = 'id, status, first_name, last_name, email, membership_type, submitted_at, decided_at, decided_by';
 const ADULT_AGE = 18;
 
-/** Basic IBAN check (format + ISO 13616 mod-97 checksum). */
 function validIban(string $iban): bool {
     $iban = strtoupper(preg_replace('/\s+/', '', $iban));
     if (!preg_match('/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/', $iban)) return false;
@@ -33,7 +31,6 @@ function validIban(string $iban): bool {
     return $remainder === 1;
 }
 
-/** PNG data URL of at most 1 MB. */
 function validSignature($value): bool {
     if (!is_string($value) || preg_match('/^data:image\/png;base64,[A-Za-z0-9+\/=]+$/', $value) !== 1) {
         return false;
@@ -42,7 +39,6 @@ function validSignature($value): bool {
     return $bytes !== false && strlen($bytes) <= 1024 * 1024;
 }
 
-/** True when the applicant is younger than ADULT_AGE on $onDate (both YYYY-MM-DD). */
 function isMinor(string $birthDate, string $onDate): bool {
     $adultFrom = (new DateTime($birthDate))->modify('+' . ADULT_AGE . ' years')->format('Y-m-d');
     return $onDate < $adultFrom;
@@ -79,7 +75,6 @@ if ($method === 'POST') {
         }
     }
 
-    // Honeypot: real users never fill the hidden "website" field.
     if (!empty($data['website'])) {
         jsonResponse(['success' => true, 'id' => 0]);
     }
@@ -179,7 +174,6 @@ if ($method === 'POST') {
         $data['signature'],
         $guardianSignature,
         $directDebit ? $debitSignature : '',
-        // Recorded by the server: a client-supplied signing time proves nothing.
         date('Y-m-d H:i:s'),
     ]);
 
@@ -206,7 +200,6 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'DELETE') {
-    // Applications hold personal and bank data; they must be removable once no longer needed.
     $chairman = requireAuthentication(['chairman']);
     if (!$data) $data = $_GET;
     $id = isset($data['id']) ? (int)$data['id'] : 0;
@@ -219,7 +212,6 @@ if ($method === 'DELETE') {
 
     $stmt = $pdo->prepare('DELETE FROM membership_applications WHERE id = ?');
     $stmt->execute([$id]);
-    // The audit entry deliberately contains no personal data.
     auditLog($pdo, $chairman, 'membership_applications', (string)$id, 'delete', ['status' => $status], null);
     jsonResponse(['success' => true, 'id' => $id]);
 }

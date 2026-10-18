@@ -18,10 +18,6 @@ function auditLog(PDO $pdo, ?array $user, string $entity, $entityId, string $act
     }
 }
 
-/**
- * Optimistic concurrency check. Responds 409 with conflict=true when the row changed since
- * the client loaded it. $table must be a hard-coded table name, never user input.
- */
 function auditCheckConflict(PDO $pdo, string $table, $id, $expected): void {
     if (!is_string($expected) || $expected === '') return;
     $stmt = $pdo->prepare("SELECT updated_at, updated_by FROM `$table` WHERE id = ? LIMIT 1");
@@ -37,7 +33,6 @@ function auditCheckConflict(PDO $pdo, string $table, $id, $expected): void {
     }
 }
 
-/** $table must be a hard-coded table name, never user input. */
 function auditFetchRow(PDO $pdo, string $table, $id): ?array {
     $stmt = $pdo->prepare("SELECT * FROM `$table` WHERE id = ? LIMIT 1");
     $stmt->execute([$id]);
@@ -45,7 +40,6 @@ function auditFetchRow(PDO $pdo, string $table, $id): ?array {
     return $row ?: null;
 }
 
-/** Lock + conflict checks every update/delete of an existing row has to pass. */
 function guardWrite(PDO $pdo, string $table, $id, array $user, $expectedUpdatedAt): void {
     assertNotLockedByOther($pdo, $table, $id, $user);
     auditCheckConflict($pdo, $table, $id, $expectedUpdatedAt);
