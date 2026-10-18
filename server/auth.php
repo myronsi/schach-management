@@ -9,9 +9,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 }
 
 const LOGIN_WINDOW_SECONDS = 15 * 60;
-const LOGIN_MAX_FAILURES_PER_ACCOUNT = 8;
+// Failures for one account from one IP: blocks guessing without letting a stranger lock the owner out.
+const LOGIN_MAX_FAILURES_PER_ACCOUNT_IP = 8;
+// Failures for one account across all IPs: slows distributed guessing.
+const LOGIN_MAX_FAILURES_PER_ACCOUNT = 50;
 const LOGIN_MAX_FAILURES_PER_IP = 30;
 const MIN_PASSWORD_LENGTH = 8;
+const RENEW_THRESHOLD_SECONDS = 24 * 60 * 60;
+
+// Note: errors are answered with HTTP 200 + success:false on purpose. The public club website
+// talks to this endpoint as well and relies on that contract.
 
 $input = requestBody();
 $action = (string)($input['action'] ?? '');
@@ -30,8 +37,9 @@ function requireValidSession(): array {
     if ($row === null) {
         jsonError('Ungültiger oder abgelaufener Token', 200);
     }
-    if ($row['status'] !== ($claims['status'] ?? null)) {
-        jsonError('Benutzerstatus geändert, bitte erneut anmelden', 200);
+    $reason = tokenRejectionReason($claims, $row);
+    if ($reason !== null) {
+        jsonError($reason, 200);
     }
     if ($row['status'] === 'blocked') {
         jsonError('Benutzerkonto gesperrt', 200);
@@ -53,7 +61,7 @@ if ($action === 'check' || $action === 'validate') {
 if ($action === 'renew') {
     [$claims, $row, $token] = requireValidSession();
     $tokenExp = (int)($claims['exp'] ?? 0);
-    if (($tokenExp - time()) > 24 * 60 * 60) {
+    if (($tokenExp - time()) > RENEW_THRESHOLD_SECONDS) {
         jsonResponse([
             'success' => true,
             'message' => 'Token still valid, no renewal needed',
@@ -61,17 +69,22 @@ if ($action === 'renew') {
             'expires_at' => $tokenExp,
         ]);
     }
+    // Renewal keeps the original login time, so a (stolen) token cannot be kept alive forever.
+    $authTime = (int)($claims['auth_time'] ?? $claims['iat'] ?? 0);
+    if ($authTime <= 0 || time() - $authTime > MAX_SESSION_SECONDS) {
+        jsonError('Sitzung abgelaufen, bitte erneut anmelden', 200);
+    }
     jsonResponse([
         'success' => true,
         'message' => 'Token erfolgreich erneuert',
-        'token' => generateJWT($row['username'], $row['status']),
+        'token' => generateJWT($row, $authTime),
         'username' => $row['username'],
         'status' => $row['status'],
     ]);
 }
 
 if ($action === 'logout') {
-    // Tokens are stateless; the client discards its copy.
+    // Tokens are stateless; the client discards its copy. Changing the password revokes all tokens.
     jsonResponse(['success' => true, 'message' => 'Erfolgreich abgemeldet']);
 }
 
@@ -106,9 +119,16 @@ if ($action === 'set_password') {
         }
     }
 
+    $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
     $upd = authDb()->prepare('UPDATE users SET password = ?, password_status = ? WHERE username = ?');
-    $upd->execute([password_hash($newPassword, PASSWORD_DEFAULT), 'changed', $user['username']]);
-    jsonResponse(['success' => true, 'message' => 'Passwort gesetzt']);
+    $upd->execute([$newHash, 'changed', $user['username']]);
+    // The new hash revokes every older token (including the one used here); hand out a fresh one.
+    $fresh = fetchUserRow($user['username']);
+    jsonResponse([
+        'success' => true,
+        'message' => 'Passwort gesetzt',
+        'token' => $fresh ? generateJWT($fresh) : null,
+    ]);
 }
 
 if ($action !== '' && $action !== 'login') {
@@ -124,8 +144,10 @@ if (!is_string($username) || !is_string($pass) || trim($username) === '' || $pas
 $username = trim($username);
 
 $accountKey = 'login:' . mb_strtolower($username);
+$accountIpKey = 'login-acc-ip:' . mb_strtolower($username) . '|' . clientIp();
 $ipKey = 'login-ip:' . clientIp();
-if (rateLimitCount($accountKey, LOGIN_WINDOW_SECONDS) >= LOGIN_MAX_FAILURES_PER_ACCOUNT
+if (rateLimitCount($accountIpKey, LOGIN_WINDOW_SECONDS) >= LOGIN_MAX_FAILURES_PER_ACCOUNT_IP
+    || rateLimitCount($accountKey, LOGIN_WINDOW_SECONDS) >= LOGIN_MAX_FAILURES_PER_ACCOUNT
     || rateLimitCount($ipKey, LOGIN_WINDOW_SECONDS) >= LOGIN_MAX_FAILURES_PER_IP) {
     jsonError('Zu viele fehlgeschlagene Anmeldeversuche. Bitte in 15 Minuten erneut versuchen.', 429);
 }
@@ -139,6 +161,7 @@ $hash = $row['password'] ?? '$2y$10$.vGA1O9wmRjrwAVXD98HNOgsNpDczlqm3Jq7KnEd1rVA
 $valid = password_verify($pass, (string)$hash) && $row;
 
 if (!$valid) {
+    rateLimitHit($accountIpKey, LOGIN_WINDOW_SECONDS);
     rateLimitHit($accountKey, LOGIN_WINDOW_SECONDS);
     rateLimitHit($ipKey, LOGIN_WINDOW_SECONDS);
     jsonError('Benutzername oder Passwort ungültig', 200);
@@ -148,11 +171,12 @@ if ($row['status'] === 'blocked') {
     jsonError('Benutzerkonto gesperrt', 200);
 }
 
-rateLimitClear($accountKey);
+rateLimitClear($accountIpKey);
 
 if (password_needs_rehash((string)$row['password'], PASSWORD_DEFAULT)) {
+    $row['password'] = password_hash($pass, PASSWORD_DEFAULT);
     $upd = authDb()->prepare('UPDATE users SET password = ? WHERE username = ?');
-    $upd->execute([password_hash($pass, PASSWORD_DEFAULT), $row['username']]);
+    $upd->execute([$row['password'], $row['username']]);
 }
 
 $mustChange = ($row['password_status'] ?? 'changed') === 'unchanged';
@@ -160,6 +184,6 @@ jsonResponse([
     'success' => true,
     'message' => $mustChange ? 'Passwort muss geändert werden' : 'Erfolgreich angemeldet',
     'status' => $row['status'],
-    'token' => generateJWT($row['username'], $row['status']),
+    'token' => generateJWT($row),
     'must_change_password' => $mustChange,
 ]);

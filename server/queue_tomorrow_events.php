@@ -2,6 +2,8 @@
 
 require_once __DIR__ . '/cron-guard.php';
 
+acquireCronLock('queue_tomorrow_events');
+
 try {
     $db = contentDb();
     $dbUsers = authDb();

@@ -47,7 +47,12 @@ const newbieTok = (await login('newbie', 'brandnewpass')).token;
 r = await call('auth.php', { method: 'POST', body: { action: 'set_password', new_password: 'anotherpass1' }, token: newbieTok });
 check('later change requires current password', r.json?.success === false, r.text);
 r = await call('auth.php', { method: 'POST', body: { action: 'set_password', new_password: 'anotherpass1', current_password: 'brandnewpass' }, token: newbieTok });
-check('later change with current password works', r.json?.success === true, r.text);
+check('later change with current password works', r.json?.success === true && typeof r.json?.token === 'string', r.text);
+const newbieFreshTok = r.json?.token;
+r = await call('auth.php', { method: 'POST', body: { action: 'validate' }, token: newbieTok });
+check('password change revokes older tokens', r.json?.success === false, r.text);
+r = await call('auth.php', { method: 'POST', body: { action: 'validate' }, token: newbieFreshTok });
+check('token returned by set_password is valid', r.json?.success === true, r.text);
 
 // ---- forged / default secret tokens
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
@@ -58,6 +63,8 @@ const forge = (secret) => {
 };
 r = await call('news.php', { method: 'POST', body: { slug: 'x', title: 'x' }, token: forge('default_secret_change_this') });
 check('default-secret token rejected', r.status === 401, r.status + r.text);
+r = await call('news.php', { method: 'POST', body: { slug: 'x', title: 'x' }, token: forge('local-test-secret-0123456789abcdef') });
+check('legacy token without password fingerprint rejected', r.status === 401, r.status + r.text);
 
 // ---- CORS
 r = await call('news.php', { origin: 'https://evil.example' });
@@ -80,6 +87,15 @@ r = await call('authm.php', { method: 'POST', token: adminTok, body: { username:
 check('cannot change own status', r.status === 403, r.status + r.text);
 r = await call('authm.php', { method: 'POST', token: adminTok, body: { username: 'freshuser', password: 'freshpass1', status: 'user' } });
 check('admin can create user', r.json?.success === true, r.text);
+r = await call('authm.php', { method: 'POST', token: adminTok, body: { username: 'member', password: 'overwrite1', status: 'user' } });
+check('create with existing username is 409, no overwrite', r.status === 409, r.status + r.text);
+check('existing user password untouched', !!(await login('member', 'memberpass')).token);
+r = await call('authm.php', { method: 'POST', token: adminTok, body: { username: 'admin2', password: 'takeover12', status: 'admin', is_update: true } });
+check('admin cannot reset another admin password', r.status === 403, r.status + r.text);
+r = await call('authm.php', { method: 'DELETE', token: adminTok, body: { username: 'admin2' } });
+check('admin cannot delete another admin', r.status === 403, r.status + r.text);
+r = await call('authm.php', { method: 'POST', token: adminTok, body: { username: 'freshuser', status: 'user', password_status: 'changed', is_update: true } });
+check('admin can update a user', r.json?.success === true, r.text);
 r = await call('authm.php', { method: 'GET', token: memberTok });
 check('member cannot list users', r.status === 403, r.status + '');
 r = await call('authm.php', { method: 'POST', token: chairTok, body: { username: 'admin2', status: 'user', password_status: 'changed', is_update: true } });
@@ -108,6 +124,16 @@ r = await call('events.php?action=create', { method: 'POST', token: admin1Tok, b
 check('batch create assigns ids', JSON.stringify(r.json?.affected_ids) === '[2,3]', r.text);
 r = await call('events.php?action=list');
 check('public event list works', r.json?.events?.length === 3, r.text);
+r = await call('events.php?action=edit', { method: 'POST', token: admin1Tok, body: { id: 2, updates: { date: 'kaputt' } } });
+check('event edit validates date', r.status === 400, r.status + r.text);
+r = await call('events.php?action=edit', { method: 'POST', token: admin1Tok, body: { id: 999, updates: { location: 'x' } } });
+check('event edit of unknown id is 404', r.status === 404, r.status + r.text);
+r = await call('events.php?action=edit', { method: 'POST', token: admin1Tok, body: { id: 2, updates: { date: '2026-12-09' } } });
+check('event edit with valid date works', r.json?.success === true, r.text);
+r = await call('events.php?action=editByTitle', { method: 'POST', token: admin1Tok, body: { title: 'B', start_date: '2026-12-01', end_date: '2026-12-11', updates: { location: 'Saal' } } });
+check('editByTitle range includes multi-day event starting on end date', r.json?.affected_ids?.length === 1, r.text);
+r = await call('events.php?action=editByTitle', { method: 'POST', token: admin1Tok, body: { title: 'B', start_date: 'gestern', updates: { location: 'Saal' } } });
+check('editByTitle validates dates', r.status === 400, r.status + r.text);
 
 // ---- path traversal
 r = await call('documents.php?action=scan&path=../');
@@ -189,6 +215,11 @@ r = await call('membership-applications.php', { method: 'POST', body: { ...app, 
 check('membership invalid birth date rejected', r.status === 400, r.text);
 r = await call('membership-applications.php', { method: 'POST', body: { ...app, direct_debit: true, bank_name: 'B', bic: 'X', iban: 'DE00123', debit_signature: sig } });
 check('membership invalid IBAN rejected', r.status === 400 && /IBAN/.test(r.json?.message), r.text);
+const minorBirth = `${new Date().getFullYear() - 10}-01-01`;
+r = await call('membership-applications.php', { method: 'POST', body: { ...app, birth_date: minorBirth } });
+check('minor without guardian signature rejected', r.status === 400 && /Vertreter/.test(r.json?.message), r.text);
+r = await call('membership-applications.php', { method: 'POST', body: { ...app, signed_at: undefined, first_name: ['x'] } });
+check('non-scalar application field rejected', r.status === 400, r.text);
 r = await call('membership-applications.php', { method: 'POST', body: { ...app, direct_debit: true, bank_name: 'B', bic: 'X', iban: 'DE89 3704 0044 0532 0130 00', debit_signature: sig } });
 check('membership valid application accepted', r.json?.success === true, r.text);
 let last;
@@ -197,7 +228,18 @@ check('membership rate limited', last.status === 429, last.status + last.text);
 r = await call('membership-applications.php', { token: admin1Tok });
 check('admin cannot read applications', r.status === 403, String(r.status));
 r = await call('membership-applications.php', { token: chairTok });
-check('chairman reads applications', Array.isArray(r.json), r.text.slice(0, 100));
+check('chairman reads applications', Array.isArray(r.json) && r.json.length > 0, r.text.slice(0, 100));
+const appCount = r.json?.length ?? 0;
+check('application list omits bank data and signatures', r.json?.[0] && !('iban' in r.json[0]) && !('signature' in r.json[0]), JSON.stringify(r.json?.[0]));
+const appId = r.json?.[0]?.id;
+r = await call(`membership-applications.php?id=${appId}`, { token: chairTok });
+check('application detail has bank data, server signing time', r.json && 'iban' in r.json && r.json.signature && r.json.signed_at, r.text.slice(0, 200));
+r = await call(`membership-applications.php?id=${appId}`, { method: 'DELETE', token: admin1Tok });
+check('admin cannot delete applications', r.status === 403, String(r.status));
+r = await call('membership-applications.php', { method: 'DELETE', token: chairTok, body: { id: appId } });
+check('chairman deletes application', r.json?.success === true, r.text);
+r = await call('membership-applications.php', { token: chairTok });
+check('deleted application is gone', Array.isArray(r.json) && r.json.length === appCount - 1 && !r.json.some((a) => a.id === appId), r.text.slice(0, 100));
 
 // ---- user profile
 r = await call('user_profile.php', { method: 'PUT', token: memberTok, body: { email: 'm@x.de', notify_events: 1 } });
@@ -212,6 +254,18 @@ r = await call('queue_tomorrow_events.php?key=wrong');
 check('queue forbidden with wrong key', r.status === 403, String(r.status));
 r = await call('queue_tomorrow_events.php?key=testcronkey');
 check('queue works with key', r.status === 200, r.status + r.text);
+r = await call('send_emails.php', { headers: { 'X-Cron-Key': 'testcronkey' } });
+check('cron key accepted as header', r.status === 200, r.status + r.text);
+
+// ---- date validation
+r = await call('news.php', { method: 'POST', token: admin1Tok, body: { slug: 'datum', title: 'D', date: 'tomorrow' } });
+check('news rejects free-form date', r.status === 400, r.status + r.text);
+r = await call('news.php', { method: 'POST', token: admin1Tok, body: { slug: 'datum', title: 'D', date: '2026-03-04' } });
+check('news accepts YYYY-MM-DD', r.json?.success === true, r.text);
+r = await call('history.php', { method: 'POST', token: admin1Tok, body: { date: 'irgendwann', text: 'x' } });
+check('history rejects invalid date', r.status === 400, r.status + r.text);
+r = await call('history.php', { method: 'POST', token: admin1Tok, body: { date: '1950.03.12-04.01', text: 'x' } });
+check('history accepts date range format', r.json?.success === true, r.text);
 
 // ---- errors do not leak internals
 r = await call('events.php?action=edit', { method: 'POST', token: admin1Tok, body: { id: 1, updates: { nonsense: 1 } } });

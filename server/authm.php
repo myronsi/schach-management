@@ -25,10 +25,18 @@ function publicUser(?array $row): ?array {
     return $row;
 }
 
-/** Non-chairmen may never touch a chairman account. */
+/**
+ * The chairman may manage everyone. Admins may manage accounts ranked below them (and edit their
+ * own record), but never another admin's or the chairman's account.
+ */
 function assertMayManage(array $currentUser, ?array $target): void {
-    if ($target && $target['status'] === 'chairman' && $currentUser['status'] !== 'chairman') {
-        jsonError('Nur der Vorsitzende kann das Konto des Vorsitzenden ändern', 403);
+    if (!$target || $currentUser['status'] === 'chairman') return;
+    if ($target['username'] === $currentUser['username']) return;
+    $targetRank = ROLE_RANK[$target['status']] ?? 0;
+    if ($targetRank >= ROLE_RANK[$currentUser['status']]) {
+        jsonError($target['status'] === 'chairman'
+            ? 'Nur der Vorsitzende kann das Konto des Vorsitzenden ändern'
+            : 'Nur der Vorsitzende kann Konten anderer Administratoren ändern', 403);
     }
 }
 
@@ -77,7 +85,12 @@ if ($method === 'POST') {
 
     $existing = fetchManagedUser($pdo, $usernameValue);
 
-    if ($isUpdate || $existing) {
+    if (!$isUpdate && $existing) {
+        // A create must never silently overwrite an existing account.
+        jsonError('Username already exists', 409);
+    }
+
+    if ($isUpdate) {
         if (!$existing) jsonError('User not found', 404);
         assertMayManage($currentUser, $existing);
 
@@ -85,6 +98,9 @@ if ($method === 'POST') {
         if ($isSelf && $statusValue !== $existing['status']) {
             jsonError('Den eigenen Status kann man nicht ändern', 403);
         }
+        // Omitted name fields keep their current value instead of being blanked.
+        if (!array_key_exists('first_name', $data)) $firstNameValue = (string)($existing['first_name'] ?? '');
+        if (!array_key_exists('last_name', $data)) $lastNameValue = (string)($existing['last_name'] ?? '');
 
         $before = publicUser($existing);
         if ($passwordValue !== '') {
