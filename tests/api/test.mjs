@@ -7,6 +7,9 @@ const check = (name, cond, extra = '') => {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${cond ? '' : '  ' + extra}`);
   if (!cond) failures++;
 };
+// Random throwaway password for requests that must be rejected (never stored, never reused).
+const { randomBytes } = await import('node:crypto');
+const throwawayPassword = () => `tmp-${randomBytes(9).toString('base64url')}`;
 
 async function call(path, { method = 'GET', body, token, origin = ORIGIN, headers = {} } = {}) {
   const h = { ...headers };
@@ -63,7 +66,9 @@ const forge = (secret) => {
 };
 r = await call('news.php', { method: 'POST', body: { slug: 'x', title: 'x' }, token: forge('default_secret_change_this') });
 check('default-secret token rejected', r.status === 401, r.status + r.text);
-r = await call('news.php', { method: 'POST', body: { slug: 'x', title: 'x' }, token: forge('local-test-secret-0123456789abcdef') });
+const { readFileSync } = await import('node:fs');
+const testJwtSecret = /^jwt_secret=(.*)$/m.exec(readFileSync(new URL('./test.env.auth', import.meta.url), 'utf8'))?.[1].trim();
+r = await call('news.php', { method: 'POST', body: { slug: 'x', title: 'x' }, token: forge(testJwtSecret) });
 check('legacy token without password fingerprint rejected', r.status === 401, r.status + r.text);
 
 // ---- CORS
@@ -87,10 +92,10 @@ r = await call('authm.php', { method: 'POST', token: adminTok, body: { username:
 check('cannot change own status', r.status === 403, r.status + r.text);
 r = await call('authm.php', { method: 'POST', token: adminTok, body: { username: 'freshuser', password: 'freshpass1', status: 'user' } });
 check('admin can create user', r.json?.success === true, r.text);
-r = await call('authm.php', { method: 'POST', token: adminTok, body: { username: 'member', password: 'overwrite1', status: 'user' } });
+r = await call('authm.php', { method: 'POST', token: adminTok, body: { username: 'member', password: throwawayPassword(), status: 'user' } });
 check('create with existing username is 409, no overwrite', r.status === 409, r.status + r.text);
 check('existing user password untouched', !!(await login('member', 'memberpass')).token);
-r = await call('authm.php', { method: 'POST', token: adminTok, body: { username: 'admin2', password: 'takeover12', status: 'admin', is_update: true } });
+r = await call('authm.php', { method: 'POST', token: adminTok, body: { username: 'admin2', password: throwawayPassword(), status: 'admin', is_update: true } });
 check('admin cannot reset another admin password', r.status === 403, r.status + r.text);
 r = await call('authm.php', { method: 'DELETE', token: adminTok, body: { username: 'admin2' } });
 check('admin cannot delete another admin', r.status === 403, r.status + r.text);
