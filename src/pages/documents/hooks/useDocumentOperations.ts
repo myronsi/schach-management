@@ -55,6 +55,7 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
 
   /** Saves the form. `editing` is the document being edited, or null when creating a new one. */
   const save = (editing: { id: number; updated_at?: string } | null) => {
+    if (createUpdate.isPending) return;
     const payload: DocumentPayload = { ...form };
     if (editing) {
       payload.id = editing.id;
@@ -193,6 +194,7 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
   return {
     form,
     setForm,
+    saving: createUpdate.isPending,
     uploading,
     uploadedFiles,
     setUploadedFiles,

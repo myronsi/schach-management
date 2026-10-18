@@ -13,9 +13,9 @@ export interface AuthContextType {
   role: string | null;
   login: (username: string, password: string) => Promise<LoginResult>;
   logout: () => Promise<void>;
-  checkAuthStatus: () => Promise<void>;
-  renewToken: () => Promise<{ success: boolean; message: string }>;
   isAuthChecked: boolean;
+  /** Set when the session ended on its own (expired/revoked) rather than by an explicit logout. */
+  sessionExpiredMessage: string | null;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);

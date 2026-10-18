@@ -11,6 +11,12 @@ use Firebase\JWT\Key;
 
 const ROLE_RANK = ['blocked' => 0, 'user' => 1, 'admin' => 2, 'chairman' => 3];
 const EDITOR_ROLES = ['admin', 'chairman'];
+const TOKEN_LIFETIME_SECONDS = 8 * 24 * 60 * 60;
+// Renewal never extends a session beyond this age (counted from the original login).
+const MAX_SESSION_SECONDS = 30 * 24 * 60 * 60;
+
+// "Today", "tomorrow" etc. must follow the club's local time, not the host default (often UTC).
+date_default_timezone_set('Europe/Berlin');
 
 // ---------------------------------------------------------------------------
 // Responses / errors
@@ -43,12 +49,32 @@ set_exception_handler(function (Throwable $e) {
 // Configuration
 // ---------------------------------------------------------------------------
 
+/**
+ * Directories searched for .env / .env.auth, most preferred first:
+ *  1. SCHACH_CONFIG_DIR environment variable (e.g. SetEnv in the host config),
+ *  2. "schach-config" next to the web root, i.e. outside the publicly served tree,
+ *  3. the API directory itself (legacy location - only safe while .htaccess denies dotfiles).
+ */
+function configDirs(): array {
+    $dirs = [];
+    $fromEnv = getenv('SCHACH_CONFIG_DIR');
+    if (is_string($fromEnv) && $fromEnv !== '') $dirs[] = rtrim($fromEnv, '/\\');
+    $dirs[] = dirname(__DIR__, 2) . '/schach-config';
+    $dirs[] = __DIR__;
+    return $dirs;
+}
+
 function loadEnvFile(string $name): array {
     static $cache = [];
     if (!array_key_exists($name, $cache)) {
-        $file = __DIR__ . '/' . $name;
-        $parsed = is_file($file) ? parse_ini_file($file) : false;
-        $cache[$name] = is_array($parsed) ? $parsed : [];
+        $cache[$name] = [];
+        foreach (configDirs() as $dir) {
+            $file = $dir . '/' . $name;
+            if (!@is_file($file)) continue;
+            $parsed = parse_ini_file($file);
+            $cache[$name] = is_array($parsed) ? $parsed : [];
+            break;
+        }
     }
     return $cache[$name];
 }
@@ -219,15 +245,29 @@ function getRequestToken(): ?string {
     return $token;
 }
 
-function generateJWT(string $username, string $status): string {
+/**
+ * Fingerprint of the stored password hash. Tokens carry it, so every password change or reset
+ * invalidates all tokens issued before it. Keyed with the JWT secret; never reveals the hash.
+ */
+function passwordFingerprint(string $passwordHash): string {
+    return substr(hash_hmac('sha256', $passwordHash, jwtSecret()), 0, 16);
+}
+
+/**
+ * @param array $user row with username, status and password (hash)
+ * @param int|null $authTime original login time; kept across renewals to cap the session age
+ */
+function generateJWT(array $user, ?int $authTime = null): string {
     $issuedAt = time();
     return JWT::encode([
         'iss' => 'schach-club',
         'aud' => 'schach-club-client',
         'iat' => $issuedAt,
-        'exp' => $issuedAt + (8 * 24 * 60 * 60),
-        'username' => $username,
-        'status' => $status,
+        'exp' => $issuedAt + TOKEN_LIFETIME_SECONDS,
+        'auth_time' => $authTime ?? $issuedAt,
+        'username' => (string)$user['username'],
+        'status' => (string)$user['status'],
+        'pwv' => passwordFingerprint((string)($user['password'] ?? '')),
     ], jwtSecret(), 'HS256');
 }
 
@@ -242,10 +282,26 @@ function decodeJWT(string $token): ?array {
 }
 
 function fetchUserRow(string $username): ?array {
-    $stmt = authDb()->prepare('SELECT username, status FROM users WHERE username = ? LIMIT 1');
+    $stmt = authDb()->prepare('SELECT username, status, password FROM users WHERE username = ? LIMIT 1');
     $stmt->execute([$username]);
     $row = $stmt->fetch();
     return $row ?: null;
+}
+
+/**
+ * Checks a decoded token against the current user row.
+ * @return string|null error message, or null when the token is still valid for this user
+ */
+function tokenRejectionReason(array $claims, ?array $row): ?string {
+    if ($row === null) return 'Invalid or expired token';
+    if (!isset($claims['pwv']) || !is_string($claims['pwv'])
+        || !hash_equals(passwordFingerprint((string)$row['password']), $claims['pwv'])) {
+        return 'Sitzung abgelaufen, bitte erneut anmelden';
+    }
+    if (($claims['status'] ?? null) !== $row['status']) {
+        return 'Benutzerstatus geändert, bitte erneut anmelden';
+    }
+    return null;
 }
 
 /**
@@ -264,11 +320,9 @@ function requireAuthentication(array $requiredPermissions = ['admin']): array {
         jsonError('Invalid or expired token', 401);
     }
     $row = fetchUserRow($claims['username']);
-    if ($row === null) {
-        jsonError('Invalid or expired token', 401);
-    }
-    if (($claims['status'] ?? null) !== $row['status']) {
-        jsonError('Benutzerstatus geändert, bitte erneut anmelden', 401);
+    $reason = tokenRejectionReason($claims, $row);
+    if ($reason !== null) {
+        jsonError($reason, 401);
     }
     if (!in_array($row['status'], $requiredPermissions, true)) {
         jsonError('Insufficient permissions', 403);

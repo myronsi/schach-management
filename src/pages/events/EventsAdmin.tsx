@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Navbar from '@/components/ui/navbar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,9 +21,15 @@ import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 
 const API = apiUrl('events.php');
 
+/** Events as returned by the API, tagged with the filter they were fetched for. */
+interface LoadedEvents {
+  filter: FilterType;
+  events: Event[];
+  failed: boolean;
+}
+
 const EventsList: React.FC = () => {
-  const [events, setEvents] = useState<Event[]>([]);
-  const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
+  const [loaded, setLoaded] = useState<LoadedEvents | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentFilter, setCurrentFilter] = useState<FilterType>('future');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -60,15 +66,15 @@ const EventsList: React.FC = () => {
       const data = await readJson<{ events?: Event[] }>(res);
       if (seq !== requestSeqRef.current) return; // stale response
       if (!res.ok || data.success === false) {
+        setLoaded({ filter: filterToUse, events: [], failed: true });
         showAlert('Fehler', data.message || `Ereignisse konnten nicht geladen werden (HTTP ${res.status}).`, 'error');
         return;
       }
-      const allEvents = data.events || [];
-      setEvents(allEvents);
-      setFilteredEvents(filterEvents(allEvents, filterToUse));
+      setLoaded({ filter: filterToUse, events: data.events || [], failed: false });
     } catch (err) {
       if (controller.signal.aborted || seq !== requestSeqRef.current) return;
       console.error('Fehler beim Laden der Ereignisse:', err);
+      setLoaded({ filter: filterToUse, events: [], failed: true });
       showAlert('Fehler', 'Ereignisse konnten nicht geladen werden (Netzwerkfehler).', 'error');
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
@@ -91,9 +97,11 @@ const EventsList: React.FC = () => {
     return () => abortRef.current?.abort();
   }, [loadEvents]);
 
-  useEffect(() => {
-    setFilteredEvents(filterEvents(events, currentFilter));
-  }, [events, currentFilter]);
+  // Only show data that was fetched for the selected filter; while the response for a newly selected
+  // filter is pending, the old dataset is not re-filtered (which would briefly show "Keine Ereignisse").
+  const isCurrent = loaded !== null && loaded.filter === currentFilter;
+  const events = useMemo(() => (isCurrent ? loaded.events : []), [isCurrent, loaded]);
+  const filteredEvents = useMemo(() => filterEvents(events, currentFilter), [events, currentFilter]);
 
   const handleDelete = async (id: string, title: string, expected_updated_at?: string) => {
     showConfirm(
@@ -226,7 +234,15 @@ const EventsList: React.FC = () => {
             </div>
           </div>
 
-          {filteredEvents.length === 0 ? (
+          {!isCurrent ? (
+            <div className="text-center">Lade Ereignisse...</div>
+          ) : loaded.failed ? (
+            <Card>
+              <CardContent className="p-6 sm:p-8 text-center text-gray-500">
+                Fehler beim Laden der Ereignisse
+              </CardContent>
+            </Card>
+          ) : filteredEvents.length === 0 ? (
             <Card>
               <CardContent className="p-6 sm:p-8 text-center text-gray-500">
                 {events.length === 0 ? (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -41,6 +41,8 @@ interface DocumentWizardProps {
   onClearScanned: () => void;
   onSubmit: () => void;
   onCancel: () => void;
+  /** True while the save request is running; disables the submit button. */
+  submitting?: boolean;
 }
 
 export const DocumentWizard: React.FC<DocumentWizardProps> = ({
@@ -62,6 +64,7 @@ export const DocumentWizard: React.FC<DocumentWizardProps> = ({
   onClearScanned,
   onSubmit,
   onCancel,
+  submitting = false,
 }) => {
   const [step, setStep] = useState(1);
   const [selectedMethod, setSelectedMethod] = useState<'upload' | 'manual' | 'scan' | null>(null);
@@ -81,9 +84,17 @@ export const DocumentWizard: React.FC<DocumentWizardProps> = ({
     onCancel();
   };
 
+  // Start at the first step again whenever the dialog is closed (also after a successful save).
+  useEffect(() => {
+    if (!open) {
+      setStep(1);
+      setSelectedMethod(null);
+    }
+  }, [open]);
+
   const handleComplete = () => {
+    if (submitting) return;
     onSubmit();
-    resetWizard();
   };
 
   if (editing) {
@@ -194,9 +205,9 @@ export const DocumentWizard: React.FC<DocumentWizardProps> = ({
             </Button>
             <Button 
               onClick={handleComplete}
-              disabled={!form.name || !form.filepath}
+              disabled={!form.name || !form.filepath || submitting}
             >
-              Aktualisieren
+              {submitting ? 'Wird gespeichert...' : 'Aktualisieren'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -321,9 +332,9 @@ export const DocumentWizard: React.FC<DocumentWizardProps> = ({
             {step === totalSteps && (
               <Button 
                 onClick={handleComplete}
-                disabled={!form.name || !form.filepath}
+                disabled={!form.name || !form.filepath || submitting}
               >
-                Dokument erstellen
+                {submitting ? 'Wird erstellt...' : 'Dokument erstellen'}
               </Button>
             )}
           </div>

@@ -19,6 +19,39 @@ function isValidEventDate($value): bool {
     return count($parts) === 1 || $parts[0] <= $parts[1];
 }
 
+/** SQL expression for an event's start day ("2026-05-01" for both "2026-05-01" and "2026-05-01:2026-05-03"). */
+const EVENT_START_SQL = "SUBSTRING_INDEX(date, ':', 1)";
+
+/**
+ * Validates the fields of a partial update. Only known fields are kept; empty values are skipped
+ * (the edit dialogs send only what should change), except is_recurring which may be 0.
+ */
+function normalizeEventUpdates($updates, array $allowed): array {
+    if (!is_array($updates)) jsonError('Ungültige Änderungen', 400);
+    $fields = [];
+    foreach ($updates as $key => $value) {
+        if (!in_array($key, $allowed, true)) continue;
+        if ($key === 'is_recurring') {
+            $fields[$key] = !empty($value) ? 1 : 0;
+            continue;
+        }
+        if ($value === null || $value === '') continue;
+        if (!is_scalar($value)) jsonError('Ungültiger Wert für ' . $key, 400);
+        $value = trim((string)$value);
+        if ($value === '') continue;
+        if ($key === 'date' && !isValidEventDate($value)) jsonError('Ungültiges Datum: ' . $value, 400);
+        $fields[$key] = $value;
+    }
+    return $fields;
+}
+
+/** Optional YYYY-MM-DD request value; responds 400 when present but malformed. */
+function optionalDate($value, string $label): ?string {
+    if ($value === null || $value === '') return null;
+    if (!is_string($value) || !isValidDate($value)) jsonError('Ungültiges Datum: ' . $label, 400);
+    return $value;
+}
+
 function normalizeEvent(array $event): array {
     $title = trim((string)($event['title'] ?? ''));
     $date = trim((string)($event['date'] ?? ''));
@@ -149,31 +182,26 @@ try {
             break;
 
         case 'edit':
-            $eventId = $input['id'] ?? null;
+            $eventId = (int)($input['id'] ?? 0);
             $updates = $input['updates'] ?? $input;
-            
-            unset($updates['id'], $updates['action']);
-            
-            error_log("Edit request - eventId: '$eventId', input: " . json_encode($input));
-            
-            if ($eventId === null || $eventId === '') {
-                http_response_code(400);
-                echo json_encode(['error' => 'Missing event ID', 'received_id' => $eventId, 'input' => $input]);
-                exit;
+            if (is_array($updates)) unset($updates['id'], $updates['action'], $updates['expected_updated_at'], $updates['token']);
+
+            if ($eventId <= 0) {
+                jsonError('Missing event ID', 400);
             }
-            
+
+            $before = auditFetchRow($pdo, 'events', $eventId);
+            if (!$before) jsonError('Event not found', 404);
+
             $fields = [];
             $values = [];
-            foreach ($updates as $key => $value) {
-                if (in_array($key, EVENT_FIELDS, true) && ($value !== null && $value !== '' || $key === 'is_recurring')) {
-                    $fields[] = "$key = ?";
-                    $values[] = $value;
-                }
+            foreach (normalizeEventUpdates($updates, EVENT_FIELDS) as $key => $value) {
+                $fields[] = "`$key` = ?";
+                $values[] = $value;
             }
-            
+
             if (!empty($fields)) {
                 guardWrite($pdo, 'events', $eventId, $user, $input['expected_updated_at'] ?? null);
-                $before = auditFetchRow($pdo, 'events', $eventId);
                 $fields[] = 'updated_by = ?';
                 $values[] = $user['username'];
                 $values[] = $eventId;
@@ -187,57 +215,48 @@ try {
             break;
             
         case 'editByTitle':
-            $title = $input['title'] ?? '';
-            $updates = $input['updates'] ?? [];
-            if (!$title) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Missing title']);
-                exit;
+            $title = trim((string)($input['title'] ?? ''));
+            if ($title === '') {
+                jsonError('Missing title', 400);
             }
             $fields = [];
             $values = [];
-            foreach ($updates as $key => $value) {
-                if ($value !== null && $value !== '' && in_array($key, ['time', 'location', 'description', 'type', 'is_recurring', 'title'], true)) {
-                    $fields[] = "$key = ?";
-                    $values[] = $value;
-                }
+            foreach (normalizeEventUpdates($input['updates'] ?? [], ['time', 'location', 'description', 'type', 'is_recurring', 'title']) as $key => $value) {
+                $fields[] = "`$key` = ?";
+                $values[] = $value;
             }
 
             $startDate = $input['start_date'] ?? null;
             $endDate = $input['end_date'] ?? null;
-            if (!$startDate && isset($input['date']) && strpos($input['date'], ':') !== false) {
+            if (!$startDate && isset($input['date']) && is_string($input['date']) && strpos($input['date'], ':') !== false) {
                 list($startDate, $endDate) = $parseDateRange($input['date']);
             }
+            $startDate = optionalDate($startDate, 'start_date');
+            $endDate = optionalDate($endDate, 'end_date');
+            if ($startDate && $endDate && $startDate > $endDate) jsonError('Startdatum liegt nach dem Enddatum', 400);
 
             if (!empty($fields)) {
                 if (!$startDate) {
                     $startDate = date('Y-m-d');
                 }
 
+                // Multi-day events ("start:end") are matched by their start day.
+                $where = 'title = ? AND ' . EVENT_START_SQL . ' >= ?';
+                $whereParams = [$title, $startDate];
                 if ($endDate) {
-                    $beforeStmt = $pdo->prepare('SELECT * FROM events WHERE title = ? AND date >= ? AND date <= ?');
-                    $beforeStmt->execute([$title, $startDate, $endDate]);
-                } else {
-                    $beforeStmt = $pdo->prepare('SELECT * FROM events WHERE title = ? AND date >= ?');
-                    $beforeStmt->execute([$title, $startDate]);
+                    $where .= ' AND ' . EVENT_START_SQL . ' <= ?';
+                    $whereParams[] = $endDate;
                 }
+                $beforeStmt = $pdo->prepare("SELECT * FROM events WHERE $where");
+                $beforeStmt->execute($whereParams);
                 $beforeRows = $beforeStmt->fetchAll();
                 $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
-                    foreach ($affectedIds as $lockedId) assertNotLockedByOther($pdo, 'events', $lockedId, $user);
+                foreach ($affectedIds as $lockedId) assertNotLockedByOther($pdo, 'events', $lockedId, $user);
 
                 $fields[] = 'updated_by = ?';
                 $values[] = $user['username'];
-                if ($endDate) {
-                    $sql = 'UPDATE events SET ' . implode(', ', $fields) . ' WHERE title = ? AND date >= ? AND date <= ?';
-                    $stmt = $pdo->prepare($sql);
-                    $execParams = array_merge($values, [$title, $startDate, $endDate]);
-                    $stmt->execute($execParams);
-                } else {
-                    $sql = 'UPDATE events SET ' . implode(', ', $fields) . ' WHERE title = ? AND date >= ?';
-                    $stmt = $pdo->prepare($sql);
-                    $execParams = array_merge($values, [$title, $startDate]);
-                    $stmt->execute($execParams);
-                }
+                $stmt = $pdo->prepare('UPDATE events SET ' . implode(', ', $fields) . " WHERE $where");
+                $stmt->execute(array_merge($values, $whereParams));
                 $affected = $stmt->rowCount();
                 $afterRows = [];
                 foreach ($affectedIds as $affectedId) {
@@ -277,12 +296,12 @@ try {
                         exit;
                     }
                     
-                    $beforeStmt = $pdo->prepare('SELECT * FROM events WHERE title = ? AND date >= ?');
+                    $beforeStmt = $pdo->prepare('SELECT * FROM events WHERE title = ? AND ' . EVENT_START_SQL . ' >= ?');
                     $beforeStmt->execute([$title, $currentDate]);
                     $beforeRows = $beforeStmt->fetchAll();
                     $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
                     foreach ($affectedIds as $lockedId) assertNotLockedByOther($pdo, 'events', $lockedId, $user);
-                    $stmt = $pdo->prepare('DELETE FROM events WHERE title = ? AND date >= ?');
+                    $stmt = $pdo->prepare('DELETE FROM events WHERE title = ? AND ' . EVENT_START_SQL . ' >= ?');
                     $stmt->execute([$title, $currentDate]);
                     $deleted = $stmt->rowCount();
                     if ($deleted) auditLog($pdo, $user, 'events', $affectedIds, 'bulk_delete', $beforeRows, null);
@@ -341,13 +360,18 @@ try {
                         echo json_encode(['error' => 'Missing start_date or end_date for range delete']);
                         exit;
                     }
+                    $startDate = optionalDate($startDate, 'start_date');
+                    $endDate = optionalDate($endDate, 'end_date');
+                    if ($startDate > $endDate) jsonError('Startdatum liegt nach dem Enddatum', 400);
 
-                    $beforeStmt = $pdo->prepare('SELECT * FROM events WHERE date >= ? AND date <= ?');
+                    // Multi-day events are matched by their start day.
+                    $rangeWhere = EVENT_START_SQL . ' >= ? AND ' . EVENT_START_SQL . ' <= ?';
+                    $beforeStmt = $pdo->prepare("SELECT * FROM events WHERE $rangeWhere");
                     $beforeStmt->execute([$startDate, $endDate]);
                     $beforeRows = $beforeStmt->fetchAll();
                     $affectedIds = array_map('intval', array_column($beforeRows, 'id'));
                     foreach ($affectedIds as $lockedId) assertNotLockedByOther($pdo, 'events', $lockedId, $user);
-                    $stmt = $pdo->prepare('DELETE FROM events WHERE date >= ? AND date <= ?');
+                    $stmt = $pdo->prepare("DELETE FROM events WHERE $rangeWhere");
                     $stmt->execute([$startDate, $endDate]);
                     $deleted = $stmt->rowCount();
                     if ($deleted) auditLog($pdo, $user, 'events', $affectedIds, 'bulk_delete', $beforeRows, null);

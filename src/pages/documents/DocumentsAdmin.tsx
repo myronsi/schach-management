@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { EditLockCancelledError, EditLockError, openWithLock, useEditLock } from '@/lib/editLock';
+import { usePendingIds } from '@/hooks/usePendingIds';
 import { apiUrl } from '@/lib/api';
 import Navbar from '@/components/ui/navbar';
 import { useQuery } from '@tanstack/react-query';
@@ -65,6 +66,7 @@ const DocumentsAdmin: React.FC = () => {
   const {
     form,
     setForm,
+    saving,
     uploading,
     uploadedFiles,
     scanning,
@@ -81,6 +83,7 @@ const DocumentsAdmin: React.FC = () => {
   } = useDocumentOperations(handleSaveSuccess);
 
   const { alertProps, performDelete } = useDocumentDelete();
+  const { isPending: isDeleting, runPending } = usePendingIds<number>();
 
   const filterOptions = [
     { value: 'all', label: 'Alle Dokumente' },
@@ -111,15 +114,13 @@ const DocumentsAdmin: React.FC = () => {
 
   const startEdit = async (item: DocumentItem) => {
     try {
-      await editLock.acquire(item.id);
-      const full = await fetchDocumentById(item.id);
+      const full = await openWithLock(editLock, item.id, () => fetchDocumentById(item.id));
       setEditing(full);
       setForm({ ...full });
       setOpen(true);
     } catch (err) {
       if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
-      void editLock.release();
       toast({ title: 'Fehler', description: 'Konnte Dokument nicht laden' });
     }
   };
@@ -131,10 +132,10 @@ const DocumentsAdmin: React.FC = () => {
     });
   };
 
-  const handleDeleteAction = async (item: DocumentItem, type: 'deactivate' | 'hard') => {
+  const handleDeleteAction = (item: DocumentItem, type: 'deactivate' | 'hard') => runPending(item.id, async () => {
     await performDelete(item, type);
     setDeleteDialog({ open: false, item: null });
-  };
+  });
 
   const handleCloseWizard = (isOpen: boolean) => {
     setOpen(isOpen);
@@ -200,6 +201,7 @@ const DocumentsAdmin: React.FC = () => {
                     item={item}
                     onEdit={startEdit}
                     onDelete={handleDelete}
+                    deleting={isDeleting(item.id)}
                   />
                 ))}
               </div>
@@ -225,6 +227,7 @@ const DocumentsAdmin: React.FC = () => {
             onClearScanned={() => setScannedFiles([])}
             onSubmit={() => save(editing)}
             onCancel={handleCancelWizard}
+            submitting={saving}
           />
         </div>
       </div>
@@ -237,6 +240,7 @@ const DocumentsAdmin: React.FC = () => {
         onClose={() => setDeleteDialog({ open: false, item: null })}
         onDeactivate={(item) => handleDeleteAction(item, 'deactivate')}
         onHardDelete={(item) => handleDeleteAction(item, 'hard')}
+        busy={deleteDialog.item ? isDeleting(deleteDialog.item.id) : false}
       />
     </div>
   );

@@ -113,11 +113,11 @@ export const useMediaForm = () => {
             description: undefined
           }));
           
-          setChildrenList([...childrenList, ...newChildren]);
-          
-          if (!form.src || form.src.trim() === '') {
-            setForm({ ...form, src: BASE_URL + 'photos/' + data.files[0] });
-          }
+          // Functional updates: the user may have edited the form or the list while the upload was running.
+          setChildrenList(prev => [...prev, ...newChildren]);
+
+          const firstSrc = BASE_URL + 'photos/' + data.files[0];
+          setForm(prev => (!prev.src || prev.src.trim() === '' ? { ...prev, src: firstSrc } : prev));
         }
         
         return { success: true };

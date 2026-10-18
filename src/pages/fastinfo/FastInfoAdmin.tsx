@@ -14,9 +14,10 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import AuditMeta from '@/components/AuditMeta';
 import { apiUrl } from '@/lib/api';
 import { deleteJson, describeApiError, postJson } from '@/lib/api-errors';
-import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { EditLockCancelledError, EditLockError, openWithLock, useEditLock } from '@/lib/editLock';
 import { hasFieldChanges } from '@/lib/form';
 import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
+import { usePendingIds } from '@/hooks/usePendingIds';
 
 const API = apiUrl('fastinfo.php');
 
@@ -57,6 +58,7 @@ const FastInfoAdmin: React.FC = () => {
 
   const { showAlert, alertProps } = useAlertDialog();
   const { showConfirm, confirmProps } = useConfirmDialog();
+  const { isPending: isDeleting, runPending } = usePendingIds<number>();
 
   const requiredFieldsFilled = Boolean(
     form.icon && String(form.icon).trim() !== '' &&
@@ -98,8 +100,7 @@ const FastInfoAdmin: React.FC = () => {
 
   const startEdit = async (item: FastInfoItem) => {
     try {
-      await editLock.acquire(item.id);
-      const full = await fetchFastInfoById(item.id);
+      const full = await openWithLock(editLock, item.id, () => fetchFastInfoById(item.id));
       setEditing(full);
       setForm({ ...full });
       setOpen(true);
@@ -111,6 +112,7 @@ const FastInfoAdmin: React.FC = () => {
   };
 
   const save = () => {
+    if (createUpdate.isPending) return;
     const payload: FastInfoItemPayload = { ...form };
     if (editing) {
       payload.id = editing.id;
@@ -130,7 +132,7 @@ const FastInfoAdmin: React.FC = () => {
     showConfirm(
       'Schnellinfo löschen',
       `Möchten Sie "${item.label}" wirklich löschen?`,
-      async () => {
+      () => runPending(item.id, async () => {
         try {
           await deleteJson(API, { id: item.id, expected_updated_at: item.updated_at });
           queryClient.invalidateQueries({ queryKey: ['fastinfo'] });
@@ -139,7 +141,7 @@ const FastInfoAdmin: React.FC = () => {
           const { title, description } = describeApiError(err, 'Fehler beim Löschen');
           showAlert(title, description, 'error');
         }
-      }
+      })
     );
   };
 
@@ -211,10 +213,11 @@ const FastInfoAdmin: React.FC = () => {
                           variant="outline"
                           size="sm"
                           onClick={() => handleDelete(item)}
+                          disabled={isDeleting(item.id)}
                           className="flex items-center justify-center gap-1 text-red-600 hover:text-red-700 w-full sm:w-auto"
                         >
                           <LucideIcons.Trash2 className="w-4 h-4" />
-                          <span className="sm:inline">Löschen</span>
+                          <span className="sm:inline">{isDeleting(item.id) ? 'Wird gelöscht...' : 'Löschen'}</span>
                         </Button>
                       </div>
                     </div>
@@ -293,10 +296,10 @@ const FastInfoAdmin: React.FC = () => {
                 <Button 
                   type="button"
                   onClick={save} 
-                  disabled={saveDisabled}
+                  disabled={saveDisabled || createUpdate.isPending}
                   className="w-full"
                 >
-                  {editing ? 'Speichern' : 'Erstellen'}
+                  {createUpdate.isPending ? (editing ? 'Wird gespeichert...' : 'Wird erstellt...') : (editing ? 'Speichern' : 'Erstellen')}
                 </Button>
               </div>
             </DialogContent>

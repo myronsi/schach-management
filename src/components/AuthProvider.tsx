@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
-import { authToken, jwtUtils } from '@/lib/auth-utils';
+import { authToken, jwtUtils, AUTH_EXPIRED_EVENT } from '@/lib/auth-utils';
 import { apiUrl } from '@/lib/api';
 import { readJson } from '@/lib/api-errors';
 import { AuthContext } from '@/hooks/useAuth';
@@ -19,12 +19,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [username, setUsername] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(null);
 
   const clearSession = useCallback(() => {
     setIsAuthenticated(false);
     setUsername(null);
     setRole(null);
   }, []);
+
+  /** The session ended without an explicit logout (401 from the API, logout in another tab). */
+  const endExpiredSession = useCallback((message: string, removeToken = true) => {
+    if (removeToken) authToken.remove();
+    clearSession();
+    setSessionExpiredMessage(message);
+  }, [clearSession]);
 
   /** Keeps the user signed in based on the (locally unexpired) token claims, e.g. while the server is unreachable. */
   const restoreSessionFromToken = useCallback((token: string) => {
@@ -60,7 +68,31 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
     authToken.remove();
     clearSession();
+    setSessionExpiredMessage(null);
   }, [clearSession]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const onExpired = () => endExpiredSession('Ihre Sitzung ist abgelaufen oder wurde beendet. Bitte melden Sie sich erneut an.');
+    // Another tab logged out or signed in as someone else: follow it instead of failing every request.
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== authToken.STORAGE_KEY) return;
+      const current = authToken.get();
+      if (!current) {
+        endExpiredSession('Sie wurden in einem anderen Tab abgemeldet.');
+      } else if (jwtUtils.getUsername(current) !== username) {
+        // Keep the other tab's token; this tab just stops acting as the previous user.
+        endExpiredSession('In einem anderen Tab wurde ein anderer Benutzer angemeldet. Bitte erneut anmelden.', false);
+      }
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [isAuthenticated, username, endExpiredSession]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -173,16 +205,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setIsAuthenticated(true);
       setUsername(jwtUtils.getUsername(data.token));
       setRole(data.status);
+      setSessionExpiredMessage(null);
     }
     return { success: true, message: data.message, status: data.status, token: data.token };
-  };
-
-  const renewToken = async (): Promise<{ success: boolean; message: string }> => {
-    const result = await authToken.renewToken();
-    if (result.success) {
-      setUsername(authToken.getUsername());
-    }
-    return result;
   };
 
   useEffect(() => {
@@ -196,9 +221,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       role,
       login,
       logout,
-      checkAuthStatus,
-      renewToken,
-      isAuthChecked
+      isAuthChecked,
+      sessionExpiredMessage
     }}>
       {children}
     </AuthContext.Provider>

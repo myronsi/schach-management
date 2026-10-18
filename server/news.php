@@ -59,7 +59,11 @@ if ($method === 'POST') {
     if (!preg_match('~^[^\s/?#%<>"\'\\\\]+$~u', $slug) || mb_strlen($slug) > 200) {
         jsonError('Der Slug darf keine Leerzeichen oder Sonderzeichen wie / ? # % enthalten', 400);
     }
-    if (strtotime($date) === false) {
+    if (isValidDate($date)) {
+        $date .= ' 00:00:00';
+    }
+    $parsedDate = DateTime::createFromFormat('!Y-m-d H:i:s', $date);
+    if ($parsedDate === false || $parsedDate->format('Y-m-d H:i:s') !== $date) {
         jsonError('Ungültiges Datum', 400);
     }
     if (slugTaken($pdo, $slug, $id)) {

@@ -10,6 +10,8 @@ interface DeleteDialogProps {
   onClose: () => void;
   onDeactivate: (item: DocumentItem) => void;
   onHardDelete: (item: DocumentItem) => void;
+  /** True while a deactivate/delete request is running; disables both actions. */
+  busy?: boolean;
 }
 
 export const DeleteDialog: React.FC<DeleteDialogProps> = ({
@@ -18,6 +20,7 @@ export const DeleteDialog: React.FC<DeleteDialogProps> = ({
   onClose,
   onDeactivate,
   onHardDelete,
+  busy = false,
 }) => {
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -45,8 +48,9 @@ export const DeleteDialog: React.FC<DeleteDialogProps> = ({
           
           <div className="space-y-3">
             <button
-              className="w-full text-left p-4 rounded-lg border-2 border-yellow-200 bg-yellow-50 hover:bg-yellow-100 hover:border-yellow-300 transition-all group"
-              onClick={() => item && onDeactivate(item)}
+              className="w-full text-left p-4 rounded-lg border-2 border-yellow-200 bg-yellow-50 hover:bg-yellow-100 hover:border-yellow-300 transition-all group disabled:opacity-50 disabled:pointer-events-none"
+              disabled={busy}
+              onClick={() => item && !busy && onDeactivate(item)}
             >
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-full bg-yellow-200 flex items-center justify-center flex-shrink-0 group-hover:bg-yellow-300 transition-colors">
@@ -68,8 +72,9 @@ export const DeleteDialog: React.FC<DeleteDialogProps> = ({
             </button>
 
             <button
-              className="w-full text-left p-4 rounded-lg border-2 border-red-200 bg-red-50 hover:bg-red-100 hover:border-red-300 transition-all group"
-              onClick={() => item && onHardDelete(item)}
+              className="w-full text-left p-4 rounded-lg border-2 border-red-200 bg-red-50 hover:bg-red-100 hover:border-red-300 transition-all group disabled:opacity-50 disabled:pointer-events-none"
+              disabled={busy}
+              onClick={() => item && !busy && onHardDelete(item)}
             >
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-full bg-red-200 flex items-center justify-center flex-shrink-0 group-hover:bg-red-300 transition-colors">
