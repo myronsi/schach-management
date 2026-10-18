@@ -37,21 +37,40 @@ npm run lint        # eslint
 npm run build       # production build into dist/
 ```
 
-CI runs all three on every push to `main`; the build must pass them before anything is deployed.
+API integration tests (MariaDB + PHP in throwaway containers, requires Docker):
+
+```bash
+sh tests/api/run.sh 8.0
+```
+
+CI (`.github/workflows/node.js.yml`) runs the checks and the API tests (PHP 8.0 and 8.3) on every pull
+request and every push to `main`; nothing is deployed unless all of them pass.
 
 ## Deployment
 
-Pushing to `main` triggers `.github/workflows/node.js.yml`, which builds the app and uploads via SFTP:
+A push to `main` runs CI and then the `deploy` job (GitHub environment `production`, which can be given
+required reviewers in the repository settings). It uploads via SFTP, API first:
 
-- `dist/*` → `/management/` (admin SPA)
 - `server/*` → `/api/` (PHP API)
+- `dist/*` → `/management/` (admin SPA)
 
 SFTP credentials come from the repository secrets `SFTP_SERVER`, `SFTP_USERNAME` and `SFTP_PASSWORD`.
+The upload only adds/overwrites files; files removed from the repository stay on the server until
+deleted by hand.
 
 ## Server configuration
 
-The PHP API expects two config files next to the scripts on the host (i.e. in `/api/`).
-**Never commit them** – they are git-ignored and must be created on the server manually.
+The PHP API reads two config files. **Never commit them** – they are git-ignored and must be created
+on the server manually. They are looked up in this order:
+
+1. the directory named by the `SCHACH_CONFIG_DIR` environment variable (e.g. `SetEnv` in the host config),
+2. `schach-config/` next to the web root (the parent of `/api/`'s parent) – **recommended**, because it is
+   outside the publicly served tree,
+3. `/api/` itself (legacy location; only safe while the `/api/.htaccess` denies dotfiles, see
+   `server/.htaccess.example`).
+
+To migrate, copy `.env` and `.env.auth` into the new directory, check that the site still works, then
+delete them from `/api/`.
 
 `server/.env` – content database and mail settings:
 
@@ -81,4 +100,20 @@ allowed_origins=...     ; comma-separated list of allowed origins
 
 `server/queue_tomorrow_events.php` and `server/send_emails.php` send the event reminder e-mails.
 They must be run either via the PHP CLI (e.g. `php /path/to/api/send_emails.php`) or over HTTP with
-the cron key: `https://<host>/api/send_emails.php?key=<cron_key>`. Requests without a valid key are rejected.
+the cron key, preferably as header so it does not end up in access logs:
+`curl -H "X-Cron-Key: <cron_key>" https://<host>/api/send_emails.php`
+(`?key=<cron_key>` still works). Requests without a valid key are rejected. Overlapping runs are skipped,
+failed mails are retried up to 3 times, and mails older than 24 hours are no longer sent.
+
+## Sessions
+
+Tokens are valid for 8 days and are renewed by the admin app while it is open, but a session never
+lasts longer than 30 days after the login. Changing or resetting a password immediately invalidates
+all tokens of that user (use this to sign a user out everywhere). Logging out discards the token in
+the browser only.
+
+## Membership applications
+
+Only the chairman can see applications. The list shows names and status; bank details and signatures
+are loaded per application. Applications can be deleted from the detail view and should be deleted
+once they are no longer needed (data minimisation).

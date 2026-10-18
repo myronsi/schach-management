@@ -14,9 +14,10 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import AuditMeta from '@/components/AuditMeta';
 import { apiUrl } from '@/lib/api';
 import { deleteJson, describeApiError, postJson } from '@/lib/api-errors';
-import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { EditLockCancelledError, EditLockError, openWithLock, useEditLock } from '@/lib/editLock';
 import { hasFieldChanges } from '@/lib/form';
 import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
+import { usePendingIds } from '@/hooks/usePendingIds';
 
 const API = apiUrl('history.php');
 
@@ -36,6 +37,12 @@ const fetchHistory = async (): Promise<HistoryItem[]> => {
 
 type HistoryItemPayload = Partial<HistoryItem> & { expected_updated_at?: string };
 
+const fetchHistoryById = async (id: string): Promise<HistoryItem> => {
+  const res = await fetch(`${API}?id=${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error('Failed to fetch history item');
+  return res.json();
+};
+
 const postHistory = (payload: HistoryItemPayload) => postJson<{ id?: number | string }>(API, payload);
 
 const HISTORY_FIELDS: (keyof HistoryItem)[] = ['date', 'text'];
@@ -54,6 +61,7 @@ const HistoryAdmin: React.FC = () => {
   
   const { showAlert, alertProps } = useAlertDialog();
   const { showConfirm, confirmProps } = useConfirmDialog();
+  const { isPending: isDeleting, runPending } = usePendingIds<string>();
 
   const isValidDateFormat = (dateStr: string): boolean => {
     if (!dateStr || dateStr.trim() === '') return false;
@@ -107,20 +115,19 @@ const HistoryAdmin: React.FC = () => {
 
   const startEdit = async (item: HistoryItem) => {
     try {
-      await editLock.acquire(item.id);
+      const full = await openWithLock(editLock, item.id, () => fetchHistoryById(item.id));
+      setEditing(full);
+      setForm({ ...full });
+      setOpen(true);
     } catch (err) {
       if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
-      void editLock.release();
-      toast({ title: 'Fehler', description: 'Bearbeitung konnte nicht gestartet werden', variant: 'destructive' });
-      return;
+      toast({ title: 'Fehler', description: 'Konnte Eintrag nicht laden', variant: 'destructive' });
     }
-    setEditing(item);
-    setForm({ ...item });
-    setOpen(true);
   };
 
   const save = () => {
+    if (createUpdate.isPending) return;
     const payload: HistoryItemPayload = { ...form };
     if (editing) {
       payload.id = editing.id;
@@ -136,7 +143,7 @@ const HistoryAdmin: React.FC = () => {
     showConfirm(
       'Historie-Eintrag löschen',
       `Möchten Sie den Eintrag "${item.date}" wirklich löschen?`,
-      async () => {
+      () => runPending(item.id, async () => {
         try {
           await deleteJson(API, { id: item.id, expected_updated_at: item.updated_at });
           queryClient.invalidateQueries({ queryKey: ['history'] });
@@ -145,7 +152,7 @@ const HistoryAdmin: React.FC = () => {
           const { title, description } = describeApiError(err, 'Fehler beim Löschen');
           showAlert(title, description, 'error');
         }
-      }
+      })
     );
   };
 
@@ -204,10 +211,11 @@ const HistoryAdmin: React.FC = () => {
                           variant="outline"
                           size="sm"
                           onClick={() => handleDelete(h)}
+                          disabled={isDeleting(h.id)}
                           className="flex items-center justify-center gap-1 text-red-600 hover:text-red-700 w-full sm:w-auto"
                         >
                           <Trash2 className="w-4 h-4" />
-                          <span className="sm:inline">Löschen</span>
+                          <span className="sm:inline">{isDeleting(h.id) ? 'Wird gelöscht...' : 'Löschen'}</span>
                         </Button>
                       </div>
                     </div>
@@ -253,10 +261,10 @@ const HistoryAdmin: React.FC = () => {
                 <Button 
                   type="button"
                   onClick={save} 
-                  disabled={saveDisabled}
+                  disabled={saveDisabled || createUpdate.isPending}
                   className="w-full"
                 >
-                  {editing ? 'Speichern' : 'Erstellen'}
+                  {createUpdate.isPending ? (editing ? 'Wird gespeichert...' : 'Wird erstellt...') : (editing ? 'Speichern' : 'Erstellen')}
                 </Button>
               </div>
             </DialogContent>

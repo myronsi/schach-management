@@ -127,6 +127,8 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const [linkTarget, setLinkTarget] = React.useState('_blank');
   const [linkClasses, setLinkClasses] = React.useState('underline hover:text-club-accent hover:underline');
   const [savedSelection, setSavedSelection] = React.useState<Range | null>(null);
+  // True when the link dialog edits an existing <a> (vs. inserting a new link).
+  const [editingExistingLink, setEditingExistingLink] = React.useState(false);
   const linkUrlInvalid = linkUrl.trim() !== '' && !isSafeLinkUrl(linkUrl);
 
   const updateSelection = React.useCallback(() => {
@@ -248,6 +250,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       node = node.parentNode;
     }
     
+    setEditingExistingLink(linkElement !== null);
     if (linkElement) {
       setLinkUrl(linkElement.getAttribute('href') || '');
       setLinkText(linkElement.textContent || '');
@@ -401,7 +404,31 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           const el = contentRef.current;
           if (!el) return;
           stripBidiMarksFromElementPreserveCaret(el);
-          onChange(el.innerHTML.replace(/[\u200E\u200F\u202A-\u202E]/g, ''));
+          // Typed, pasted or dropped content is sanitized before it leaves the editor.
+          onChange(sanitizeHtml(el.innerHTML.replace(/[\u200E\u200F\u202A-\u202E]/g, '')));
+        }}
+        onPaste={(e) => {
+          const html = e.clipboardData.getData('text/html');
+          if (!html) return; // plain text paste: let the browser insert it as text
+          e.preventDefault();
+          const clean = sanitizeHtml(html);
+          // insertHTML keeps the undo stack and fires an input event (which calls onChange).
+          if (document.execCommand('insertHTML', false, clean)) return;
+          const el = contentRef.current;
+          const sel = document.getSelection();
+          if (!el || !sel || sel.rangeCount === 0) return;
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          const fragment = range.createContextualFragment(clean);
+          const last = fragment.lastChild;
+          range.insertNode(fragment);
+          if (last) {
+            range.setStartAfter(last);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+          onChange(sanitizeHtml(el.innerHTML));
         }}
         onMouseUp={updateSelection}
         onKeyUp={updateSelection}
@@ -494,7 +521,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                 Abbrechen
               </Button>
               <Button onClick={insertLink} disabled={!linkUrl || !linkText || linkUrlInvalid}>
-                {savedSelection ? 'Aktualisieren' : 'Einfügen'}
+                {editingExistingLink ? 'Aktualisieren' : 'Einfügen'}
               </Button>
             </div>
           </DialogFooter>

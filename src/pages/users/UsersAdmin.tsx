@@ -41,6 +41,7 @@ interface UserPayload {
 }
 
 const USER_FIELDS: (keyof User)[] = ['username', 'status', 'password_status', 'first_name', 'last_name'];
+const ROLE_RANK: Record<string, number> = { blocked: 0, user: 1, admin: 2, chairman: 3 };
 
 const toPasswordStatus = (value: string | undefined): PasswordStatus =>
   value === 'changed' ? 'changed' : 'unchanged';
@@ -63,10 +64,11 @@ const UsersAdmin: React.FC = () => {
   const { toast } = useToast();
   const { role, username: currentUsername } = useAuth();
   const isChairman = role === 'chairman';
-  // Mirrors the server rules: only a chairman may modify/delete a chairman account,
-  // nobody may delete their own account or change their own status.
+  // Mirrors the server rules: the chairman may manage everyone; admins only accounts ranked below
+  // them (plus their own record). Nobody may delete their own account or change their own status.
   const isSelf = (user: User) => !!currentUsername && user.username === currentUsername;
-  const canEditUser = (user: User) => isChairman || user.status !== 'chairman';
+  const canEditUser = (user: User) =>
+    isChairman || isSelf(user) || (ROLE_RANK[user.status] ?? 0) < (ROLE_RANK[role ?? ''] ?? 0);
   const canDeleteUser = (user: User) => !isSelf(user) && canEditUser(user);
   const { data, isLoading, error } = useQuery<User[], Error>({ 
     queryKey: ['users'], 
@@ -153,6 +155,7 @@ const UsersAdmin: React.FC = () => {
   };
 
   const save = () => {
+    if (createUpdate.isPending) return;
     const payload: UserPayload = {
       username: form.username,
       // Your own status cannot be changed (the server rejects it), so always send the stored value.
@@ -452,10 +455,10 @@ const UsersAdmin: React.FC = () => {
                 <Button
                   type="button"
                   onClick={save}
-                  disabled={saveDisabled}
+                  disabled={saveDisabled || createUpdate.isPending}
                   className="w-full"
                 >
-                  {editing ? 'Speichern' : 'Erstellen'}
+                  {createUpdate.isPending ? (editing ? 'Wird gespeichert...' : 'Wird erstellt...') : (editing ? 'Speichern' : 'Erstellen')}
                 </Button>
               </div>
             </DialogContent>

@@ -7,26 +7,35 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { httpUtils } from '@/lib/auth-utils';
 import { apiUrl } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
-import { Check, X, FileText, UserRound } from 'lucide-react';
+import { Check, X, FileText, UserRound, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useConfirmDialog } from '@/hooks/useDialogs';
 
 const API = apiUrl('membership-applications.php');
 
-interface Application {
+/** List entries only carry what the overview shows; bank data and signatures are loaded per application. */
+interface ApplicationSummary {
   id: number;
   status: 'submitted' | 'approved' | 'rejected';
   first_name: string;
   last_name: string;
+  email: string;
+  membership_type: string;
+  submitted_at: string;
+  decided_at?: string | null;
+  decided_by?: string | null;
+}
+
+interface Application extends ApplicationSummary {
   address: string;
   postal_city: string;
   birth_date: string;
   birth_place: string;
   phone: string;
-  email: string;
   nationality: string;
   gender: string;
-  membership_type: string;
   previous_club: string;
-  direct_debit: boolean;
+  direct_debit: boolean | number;
   bank_name: string;
   bic: string;
   iban: string;
@@ -36,14 +45,27 @@ interface Application {
   guardian_signature: string;
   debit_signature: string;
   signed_at: string;
-  submitted_at: string;
   signature: string;
 }
 
-const fetchApplications = async (): Promise<Application[]> => {
+const fetchApplications = async (): Promise<ApplicationSummary[]> => {
   const res = await httpUtils.authenticatedFetch(API);
   const data = await res.json();
   if (!res.ok || data.success === false) throw new Error(data.message || 'Fehler beim Laden');
+  return data;
+};
+
+const fetchApplication = async (id: number): Promise<Application> => {
+  const res = await httpUtils.authenticatedFetch(`${API}?id=${id}`);
+  const data = await res.json();
+  if (!res.ok || data.success === false) throw new Error(data.message || 'Fehler beim Laden');
+  return data;
+};
+
+const deleteApplication = async (id: number) => {
+  const res = await httpUtils.delete(API, { id });
+  const data = await res.json();
+  if (!res.ok || data.success === false) throw new Error(data.message || 'Fehler beim Löschen');
   return data;
 };
 
@@ -57,12 +79,38 @@ const updateApplication = async (id: number, status: 'approved' | 'rejected') =>
 const MembershipApplications: React.FC = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [selected, setSelected] = useState<Application | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const { showConfirm, confirmProps } = useConfirmDialog();
 
   const { data = [], isLoading, error } = useQuery({
     queryKey: ['membership-applications'],
     queryFn: fetchApplications,
   });
+
+  const { data: selected, isLoading: isLoadingDetail, error: detailError } = useQuery({
+    queryKey: ['membership-applications', selectedId],
+    queryFn: () => fetchApplication(selectedId as number),
+    enabled: selectedId !== null,
+  });
+  const setSelected = (application: ApplicationSummary | null) => setSelectedId(application ? application.id : null);
+
+  const deletion = useMutation({
+    mutationFn: (id: number) => deleteApplication(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['membership-applications'] });
+      setSelectedId(null);
+      toast({ title: 'Gelöscht', description: 'Der Mitgliedsantrag wurde endgültig gelöscht.' });
+    },
+    onError: (err: Error) => toast({ title: 'Fehler', description: err.message, variant: 'destructive' }),
+  });
+
+  const confirmDelete = (application: Application) => {
+    showConfirm(
+      'Antrag löschen',
+      `Den Antrag von ${application.first_name} ${application.last_name} mit allen Daten (inkl. Bankverbindung und Unterschriften) endgültig löschen?`,
+      () => deletion.mutate(application.id)
+    );
+  };
 
   const mutation = useMutation({
     mutationFn: ({ id, status }: { id: number; status: 'approved' | 'rejected' }) =>
@@ -113,7 +161,21 @@ const MembershipApplications: React.FC = () => {
             <Card><CardContent className="p-8 text-center text-gray-500">Keine Mitgliedsanträge vorhanden.</CardContent></Card>
           )}
 
-          {selected && (
+          {selectedId !== null && !selected && (
+            <div className="fixed inset-0 z-50 bg-black/40 p-4 overflow-y-auto" onClick={() => setSelected(null)}>
+              <div className="max-w-3xl mx-auto my-8" onClick={(e) => e.stopPropagation()}>
+                <Card>
+                  <CardContent className="p-6 text-center space-y-4">
+                    {isLoadingDetail && <div>Lade Antrag...</div>}
+                    {detailError && <div className="text-red-600">Fehler beim Laden des Antrags.</div>}
+                    <Button variant="outline" onClick={() => setSelected(null)} className="w-full">Schließen</Button>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+
+          {selectedId !== null && selected && (
             <div className="fixed inset-0 z-50 bg-black/40 p-4 overflow-y-auto" onClick={() => setSelected(null)}>
               <div className="max-w-3xl mx-auto my-8" onClick={(e) => e.stopPropagation()}>
                 <Card>
@@ -138,7 +200,7 @@ const MembershipApplications: React.FC = () => {
                       ))}
                     </div>
 
-                    {selected.direct_debit && (
+                    {Boolean(Number(selected.direct_debit)) && (
                       <div className="border rounded-lg p-4">
                         <h3 className="font-semibold mb-3">Einzugsermächtigung</h3>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
@@ -178,12 +240,21 @@ const MembershipApplications: React.FC = () => {
                       </div>
                     )}
 
+                    <Button
+                      variant="outline"
+                      onClick={() => confirmDelete(selected)}
+                      disabled={deletion.isPending}
+                      className="w-full text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" /> Antrag endgültig löschen
+                    </Button>
                     <Button variant="outline" onClick={() => setSelected(null)} className="w-full">Schließen</Button>
                   </CardContent>
                 </Card>
               </div>
             </div>
           )}
+          <ConfirmDialog {...confirmProps} confirmText="Löschen" />
         </div>
       </div>
     </div>

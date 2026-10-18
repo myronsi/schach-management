@@ -2,13 +2,21 @@
 
 require_once __DIR__ . '/cron-guard.php';
 
+// "failed" counts delivery attempts; a mail is retried on later runs until MAX_SEND_ATTEMPTS.
+const MAX_SEND_ATTEMPTS = 3;
+// Reminders are only useful shortly after queueing; never send stale ones (also skips old failures).
+const MAX_QUEUE_AGE_HOURS = 24;
+
+acquireCronLock('send_emails');
+
 $env = contentEnv();
 $fromEmail = $env['from_email'] ?? 'no-reply@sc-laufenburg.de';
 
 try {
     $db = contentDb();
 
-    $stmt = $db->query("SELECT * FROM email_queue WHERE sent = 0 AND (failed IS NULL OR failed = 0) ORDER BY created_at ASC LIMIT 50");
+    $stmt = $db->prepare("SELECT * FROM email_queue WHERE sent = 0 AND COALESCE(failed, 0) < ? AND created_at >= NOW() - INTERVAL " . MAX_QUEUE_AGE_HOURS . " HOUR ORDER BY created_at ASC LIMIT 50");
+    $stmt->execute([MAX_SEND_ATTEMPTS]);
     $emails = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($emails)) {
@@ -43,13 +51,13 @@ try {
                 $upd->execute([$mail['id']]);
                 $sentCount++;
             } else {
-                $upd = $db->prepare("UPDATE email_queue SET failed = 1, error_message = ? WHERE id = ?");
+                $upd = $db->prepare("UPDATE email_queue SET failed = COALESCE(failed, 0) + 1, error_message = ? WHERE id = ?");
                 $upd->execute(['mail() function returned false', $mail['id']]);
                 $failedCount++;
                 error_log("Failed to send email to {$mail['email']}: mail() returned false");
             }
         } catch (Exception $e) {
-            $upd = $db->prepare("UPDATE email_queue SET failed = 1, error_message = ? WHERE id = ?");
+            $upd = $db->prepare("UPDATE email_queue SET failed = COALESCE(failed, 0) + 1, error_message = ? WHERE id = ?");
             $upd->execute([$e->getMessage(), $mail['id']]);
             $failedCount++;
             error_log("Failed to send email to {$mail['email']}: {$e->getMessage()}");
