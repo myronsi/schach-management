@@ -15,11 +15,14 @@ import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import AuditMeta from '@/components/AuditMeta';
 import { apiUrl } from '@/lib/api';
 import { deleteJson, describeApiError, postJson } from '@/lib/api-errors';
-import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { EditLockCancelledError, EditLockError, openWithLock, useEditLock } from '@/lib/editLock';
 import { hasFieldChanges } from '@/lib/form';
 import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
+import { usePendingIds } from '@/hooks/usePendingIds';
 
 const API = apiUrl('teams.php');
+/** The team page description is stored as the special row with id 0. */
+const TEAM_DESCRIPTION_ID = 0;
 
 interface TeamItem {
   id: number;
@@ -53,8 +56,10 @@ const fetchTeams = async (): Promise<TeamItem[]> => {
   return res.json();
 };
 
-const fetchDescription = async (): Promise<TeamDescription> => {
-  const res = await fetch(`${API}?id=0`);
+/** Fresh description row for editing; null if it does not exist yet (it is created on first save). */
+const fetchDescription = async (): Promise<TeamDescription | null> => {
+  const res = await fetch(`${API}?id=${TEAM_DESCRIPTION_ID}`);
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error('Failed to fetch description');
   return res.json();
 };
@@ -71,13 +76,14 @@ const TeamsAdmin: React.FC = () => {
   const editLock = useEditLock('teams');
   const { toast } = useToast();
   const { data, isLoading, error } = useQuery<TeamItem[], Error>({ queryKey: ['teams'], queryFn: fetchTeams });
-  const { data: description } = useQuery<TeamDescription, Error>({ queryKey: ['description'], queryFn: fetchDescription });
   const [open, setOpen] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [editing, setEditing] = useState<TeamItem | null>(null);
   const [form, setForm] = useState<Partial<TeamItem>>({});
   
   const [descForm, setDescForm] = useState<TeamDescription>({ id: 0, name: '', text: '' });
+  // Fresh copy of the description row loaded when editing started (null if it does not exist yet).
+  const [descOriginal, setDescOriginal] = useState<TeamDescription | null>(null);
   
   const [recordW, setRecordW] = useState<number>(0);
   const [recordD, setRecordD] = useState<number>(0);
@@ -88,6 +94,7 @@ const TeamsAdmin: React.FC = () => {
   
   const { showAlert, alertProps } = useAlertDialog();
   const { showConfirm, confirmProps } = useConfirmDialog();
+  const { isPending: isDeleting, runPending } = usePendingIds<number>();
 
   const requiredFieldsFilled = Boolean(
     form.name && String(form.name).trim() !== '' &&
@@ -157,7 +164,6 @@ const TeamsAdmin: React.FC = () => {
   const updateDescription = useMutation<Awaited<ReturnType<typeof postTeam>>, Error, TeamDescriptionPayload>({
     mutationFn: postTeam,
     onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: ['description'] });
       toast({ title: 'Erfolg', description: 'Beschreibung gespeichert' });
       await editLock.release();
       setDescriptionOpen(false);
@@ -170,32 +176,30 @@ const TeamsAdmin: React.FC = () => {
 
   const startEditDescription = async () => {
     try {
-      await editLock.acquire(0);
+      // Always edit the current row (loaded after acquiring the lock), never cached data.
+      const fresh = await openWithLock(editLock, TEAM_DESCRIPTION_ID, fetchDescription);
+      setDescOriginal(fresh);
+      setDescForm(fresh ? { ...fresh } : { id: TEAM_DESCRIPTION_ID, name: 'Mannschaften Beschreibung', text: '' });
+      setDescriptionOpen(true);
     } catch (err) {
       if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) { toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' }); return; }
-      toast({ title: 'Fehler', description: 'Bearbeitung konnte nicht gestartet werden', variant: 'destructive' });
-      return;
+      toast({ title: 'Fehler', description: 'Konnte Beschreibung nicht laden', variant: 'destructive' });
     }
-    if (description) {
-      setDescForm({ ...description });
-    } else {
-      setDescForm({ id: 0, name: 'Mannschaften Beschreibung', text: '' });
-    }
-    setDescriptionOpen(true);
   };
 
   const hasDescriptionChanges = () => {
-    if (!description) {
+    if (!descOriginal) {
       return Boolean(descForm.name || descForm.text);
     }
-    return descForm.name !== description.name || descForm.text !== description.text;
+    return descForm.name !== descOriginal.name || descForm.text !== descOriginal.text;
   };
 
   const saveDescription = () => {
+    if (updateDescription.isPending) return;
     // The description is the special row with id 0, which is always sent explicitly.
-    const payload: TeamDescriptionPayload = { ...descForm, id: 0 };
-    if (description?.updated_at) payload.expected_updated_at = description.updated_at;
+    const payload: TeamDescriptionPayload = { ...descForm, id: TEAM_DESCRIPTION_ID };
+    if (descOriginal?.updated_at) payload.expected_updated_at = descOriginal.updated_at;
     updateDescription.mutate(payload);
   };
 
@@ -214,8 +218,7 @@ const TeamsAdmin: React.FC = () => {
 
   const startEdit = async (item: TeamItem) => {
     try {
-      await editLock.acquire(item.id);
-      const full = await fetchTeamById(item.id);
+      const full = await openWithLock(editLock, item.id, () => fetchTeamById(item.id));
       setEditing(full);
       setForm({ ...full });
       
@@ -247,6 +250,7 @@ const TeamsAdmin: React.FC = () => {
   };
 
   const save = () => {
+    if (createUpdate.isPending) return;
     const payload: TeamItemPayload = { ...form };
     if (editing) {
       payload.id = editing.id;
@@ -282,7 +286,7 @@ const TeamsAdmin: React.FC = () => {
     showConfirm(
       'Team löschen',
       `Möchten Sie das Team "${item.name}" wirklich löschen?`,
-      async () => {
+      () => runPending(item.id, async () => {
         try {
           await deleteJson(API, { id: item.id, expected_updated_at: item.updated_at });
           queryClient.invalidateQueries({ queryKey: ['teams'] });
@@ -291,7 +295,7 @@ const TeamsAdmin: React.FC = () => {
           const { title, description } = describeApiError(err, 'Fehler beim Löschen');
           showAlert(title, description, 'error');
         }
-      }
+      })
     );
   };
 
@@ -358,10 +362,11 @@ const TeamsAdmin: React.FC = () => {
                           variant="outline"
                           size="sm"
                           onClick={() => handleDelete(t)}
+                          disabled={isDeleting(t.id)}
                           className="flex items-center justify-center gap-1 text-red-600 hover:text-red-700 w-full sm:w-auto"
                         >
                           <Trash2 className="w-4 h-4" />
-                          <span className="sm:inline">Löschen</span>
+                          <span className="sm:inline">{isDeleting(t.id) ? 'Wird gelöscht...' : 'Löschen'}</span>
                         </Button>
                       </div>
                     </div>
@@ -401,10 +406,10 @@ const TeamsAdmin: React.FC = () => {
                 <Button 
                   type="button"
                   onClick={saveDescription} 
-                  disabled={!hasDescriptionChanges()}
+                  disabled={!hasDescriptionChanges() || updateDescription.isPending}
                   className="w-full"
                 >
-                  Speichern
+                  {updateDescription.isPending ? 'Wird gespeichert...' : 'Speichern'}
                 </Button>
               </div>
             </DialogContent>
@@ -609,10 +614,10 @@ const TeamsAdmin: React.FC = () => {
                 <Button 
                   type="button"
                   onClick={save} 
-                  disabled={saveDisabled}
+                  disabled={saveDisabled || createUpdate.isPending}
                   className="w-full"
                 >
-                  {editing ? 'Speichern' : 'Erstellen'}
+                  {createUpdate.isPending ? (editing ? 'Wird gespeichert...' : 'Wird erstellt...') : (editing ? 'Speichern' : 'Erstellen')}
                 </Button>
               </div>
             </DialogContent>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { EditLockCancelledError, EditLockError, openWithLock, useEditLock } from '@/lib/editLock';
 import { describeApiError } from '@/lib/api-errors';
 import Navbar from '@/components/ui/navbar';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import { MediaWizard } from './MediaWizard';
 import { parseChildren, stripBaseUrl, buildFullSrc } from './utils';
 import { BASE_URL } from './constants';
 import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
+import { usePendingIds } from '@/hooks/usePendingIds';
 
 const MediaAdmin: React.FC = () => {
   const queryClient = useQueryClient();
@@ -32,6 +33,7 @@ const MediaAdmin: React.FC = () => {
   
   const { showAlert, alertProps } = useAlertDialog();
   const { showConfirm, confirmProps } = useConfirmDialog();
+  const { isPending: isDeleting, runPending } = usePendingIds<number>();
   
 
   const mediaForm = useMediaForm();
@@ -60,8 +62,7 @@ const MediaAdmin: React.FC = () => {
 
   const startEdit = async (item: MediaItem) => {
     try {
-      await editLock.acquire(item.id);
-      const full = await fetchMediaById(item.id);
+      const full = await openWithLock(editLock, item.id, () => fetchMediaById(item.id));
       setEditing(full);
       mediaForm.resetForm();
       
@@ -81,12 +82,12 @@ const MediaAdmin: React.FC = () => {
     } catch (err) {
       if (err instanceof EditLockCancelledError) return;
       if (err instanceof EditLockError) { showAlert('Bearbeitung gesperrt', err.message, 'error'); return; }
-      void editLock.release();
       showAlert('Fehler', 'Konnte Media nicht laden', 'error');
     }
   };
 
   const handleSave = () => {
+    if (createUpdate.isPending) return;
     let processedChildren: ChildItem[] = [...mediaForm.childrenList];
     
     const internalSrc = mediaForm.form.src ? stripBaseUrl(mediaForm.form.src, BASE_URL) : '';
@@ -115,7 +116,8 @@ const MediaAdmin: React.FC = () => {
     const payload: MediaPayload = {
       ...mediaForm.form,
       src: internalSrc,
-      description: undefined,
+      // The wizard has no field for the gallery description; send the loaded value so saving keeps it.
+      description: mediaForm.form.description ?? '',
       children: JSON.stringify(processedChildren)
     };
 
@@ -134,7 +136,7 @@ const MediaAdmin: React.FC = () => {
     showConfirm(
       'Media löschen',
       `Möchten Sie das Media-Element "${item.title}" wirklich löschen?`,
-      async () => {
+      () => runPending(item.id, async () => {
         try {
           await deleteMedia(item.id, item.updated_at);
           queryClient.invalidateQueries({ queryKey: ['media'] });
@@ -143,7 +145,7 @@ const MediaAdmin: React.FC = () => {
           const { title, description } = describeApiError(err, 'Fehler beim Löschen');
           showAlert(title, description, 'error');
         }
-      }
+      })
     );
   };
 
@@ -189,6 +191,7 @@ const MediaAdmin: React.FC = () => {
                   media={m}
                   onEdit={startEdit}
                   onDelete={handleDelete}
+                  deleting={isDeleting(m.id)}
                 />
               ))}
             </div>
@@ -221,6 +224,7 @@ const MediaAdmin: React.FC = () => {
             onImportSingleFile={mediaForm.importSingleFile}
             onSubmit={handleSave}
             onCancel={handleCancel}
+            submitting={createUpdate.isPending}
           />
         </div>
       </div>

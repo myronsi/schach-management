@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -42,6 +42,8 @@ interface MediaWizardProps {
   onImportSingleFile: (filePath: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
+  /** True while the save request is running; disables the submit button. */
+  submitting?: boolean;
 }
 
 export const MediaWizard: React.FC<MediaWizardProps> = ({
@@ -69,6 +71,7 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
   onImportSingleFile,
   onSubmit,
   onCancel,
+  submitting = false,
 }) => {
   const [step, setStep] = useState(1);
   const [selectedMethod, setSelectedMethod] = useState<'upload' | 'manual' | 'scan' | null>(null);
@@ -88,9 +91,17 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
     onCancel();
   };
 
+  // Start at the first step again whenever the dialog is closed (also after a successful save).
+  useEffect(() => {
+    if (!open) {
+      setStep(1);
+      setSelectedMethod(null);
+    }
+  }, [open]);
+
   const handleComplete = () => {
+    if (submitting) return;
     onSubmit();
-    resetWizard();
   };
 
   if (editing) {
@@ -162,8 +173,8 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
             <Button variant="outline" onClick={handleCancel}>
               Abbrechen
             </Button>
-            <Button onClick={handleComplete}>
-              Aktualisieren
+            <Button onClick={handleComplete} disabled={submitting}>
+              {submitting ? 'Wird gespeichert...' : 'Aktualisieren'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -446,8 +457,8 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
             )}
             
             {step === 4 && (
-              <Button onClick={handleComplete}>
-                Media erstellen
+              <Button onClick={handleComplete} disabled={submitting}>
+                {submitting ? 'Wird erstellt...' : 'Media erstellen'}
               </Button>
             )}
           </div>

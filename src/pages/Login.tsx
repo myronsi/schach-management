@@ -23,7 +23,7 @@ const Login: React.FC = () => {
   const [loginError, setLoginError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-  const { isAuthenticated, login } = useAuth();
+  const { isAuthenticated, login, sessionExpiredMessage } = useAuth();
 
   const {
     register,
@@ -80,6 +80,11 @@ const Login: React.FC = () => {
               {loginError && (
                 <Alert variant="destructive">
                   <AlertDescription>{loginError}</AlertDescription>
+                </Alert>
+              )}
+              {!loginError && sessionExpiredMessage && (
+                <Alert>
+                  <AlertDescription>{sessionExpiredMessage}</AlertDescription>
                 </Alert>
               )}
               

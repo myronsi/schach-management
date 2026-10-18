@@ -12,12 +12,15 @@ interface DocumentCardProps {
   item: DocumentItem;
   onEdit: (item: DocumentItem) => void;
   onDelete: (item: DocumentItem) => void;
+  /** True while a delete request for this document is running. */
+  deleting?: boolean;
 }
 
 export const DocumentCard: React.FC<DocumentCardProps> = ({
   item,
   onEdit,
   onDelete,
+  deleting = false,
 }) => {
   const handleOpen = () => {
     const url = item.filepath && String(item.filepath).match(/^https?:\/\//)
@@ -97,10 +100,11 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
               variant="outline"
               size="sm"
               onClick={() => onDelete(item)}
+              disabled={deleting}
               className="flex items-center justify-center gap-1 text-red-600 hover:text-red-700 w-full sm:w-auto"
             >
               <Trash2 className="w-4 h-4" />
-              <span className="sm:inline">Löschen</span>
+              <span className="sm:inline">{deleting ? 'Wird gelöscht...' : 'Löschen'}</span>
             </Button>
           </div>
         </div>

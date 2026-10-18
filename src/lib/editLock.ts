@@ -94,13 +94,51 @@ export function useEditLock(entity: string) {
   const mountedRef = useRef(true);
   // Incremented by every acquire()/release() so that a slow acquire can detect it is stale.
   const generationRef = useRef(0);
+  // The heartbeat only runs while a lock is held, so idle hook instances (e.g. one per EventCard) cost nothing.
+  const heartbeatTimerRef = useRef<number | null>(null);
 
-  const release = useCallback(async () => {
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatTimerRef.current !== null) {
+      window.clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    }
+  }, []);
+
+  const heartbeat = useCallback(async () => {
+    const lock = lockRef.current;
+    if (!lock) {
+      stopHeartbeat();
+      return;
+    }
+    const outcome = await lockRequest('heartbeat', entity, lock.id, lock.token);
+    if (outcome === 'lost' && lockRef.current === lock) {
+      lockRef.current = null;
+      stopHeartbeat();
+      toast({
+        title: 'Bearbeitungssperre abgelaufen',
+        description: 'Die Bearbeitungssperre ist abgelaufen oder wurde von einem anderen Benutzer übernommen. Bitte laden Sie den Eintrag neu, bevor Sie Änderungen speichern.',
+        variant: 'destructive',
+      });
+    }
+  }, [entity, stopHeartbeat]);
+
+  const startHeartbeat = useCallback(() => {
+    stopHeartbeat();
+    heartbeatTimerRef.current = window.setInterval(() => { void heartbeat(); }, HEARTBEAT_INTERVAL_MS);
+  }, [heartbeat, stopHeartbeat]);
+
+  /**
+   * Releases the held lock. With `entityId`, only releases if the held lock belongs to that entity
+   * (and leaves a concurrently running acquire() for another entity untouched).
+   */
+  const release = useCallback(async (entityId?: string | number) => {
+    if (entityId !== undefined && lockRef.current?.id !== String(entityId)) return;
     generationRef.current += 1;
+    stopHeartbeat();
     const lock = lockRef.current;
     lockRef.current = null;
     if (lock) await lockRequest('release', entity, lock.id, lock.token);
-  }, [entity]);
+  }, [entity, stopHeartbeat]);
 
   const acquire = useCallback(async (entityId: string | number) => {
     const id = String(entityId);
@@ -113,46 +151,66 @@ export function useEditLock(entity: string) {
       throw new EditLockCancelledError();
     }
     lockRef.current = { id, token: result.token };
+    startHeartbeat();
     return result;
-  }, [entity, release]);
+  }, [entity, release, startHeartbeat]);
+
+  /** True while this hook holds the lock for `entityId`. */
+  const isHeld = useCallback((entityId: string | number) => lockRef.current?.id === String(entityId), []);
 
   useEffect(() => {
     mountedRef.current = true;
 
-    const heartbeat = window.setInterval(async () => {
-      const lock = lockRef.current;
-      if (!lock) return;
-      const outcome = await lockRequest('heartbeat', entity, lock.id, lock.token);
-      if (outcome === 'lost' && lockRef.current === lock) {
-        lockRef.current = null;
-        toast({
-          title: 'Bearbeitungssperre abgelaufen',
-          description: 'Die Bearbeitungssperre ist abgelaufen oder wurde von einem anderen Benutzer übernommen. Bitte laden Sie den Eintrag neu, bevor Sie Änderungen speichern.',
-          variant: 'destructive',
-        });
-      }
-    }, HEARTBEAT_INTERVAL_MS);
-
-    const releaseOnExit = () => {
+    const releaseOnExit = (event: PageTransitionEvent) => {
+      // A page entering the back/forward cache may be restored later; keep the lock in that case.
+      if (event.persisted) return;
       const lock = lockRef.current;
       if (!lock) return;
       lockRef.current = null;
+      stopHeartbeat();
       releaseWithBeacon(entity, lock.id, lock.token);
     };
 
+    const refreshOnRestore = (event: PageTransitionEvent) => {
+      // Restored from the back/forward cache: the lock may have expired meanwhile, check it right away.
+      if (event.persisted && lockRef.current) void heartbeat();
+    };
+
     window.addEventListener('pagehide', releaseOnExit);
-    window.addEventListener('beforeunload', releaseOnExit);
+    window.addEventListener('pageshow', refreshOnRestore);
     return () => {
       mountedRef.current = false;
       generationRef.current += 1;
-      window.clearInterval(heartbeat);
+      stopHeartbeat();
       window.removeEventListener('pagehide', releaseOnExit);
-      window.removeEventListener('beforeunload', releaseOnExit);
+      window.removeEventListener('pageshow', refreshOnRestore);
       const lock = lockRef.current;
       lockRef.current = null;
       if (lock) void lockRequest('release', entity, lock.id, lock.token);
     };
-  }, [entity]);
+  }, [entity, heartbeat, stopHeartbeat]);
 
-  return { acquire, release };
+  return { acquire, release, isHeld };
+}
+
+export type EditLockHandle = Pick<ReturnType<typeof useEditLock>, 'acquire' | 'release' | 'isHeld'>;
+
+/**
+ * Acquires the edit lock for `entityId` and then runs `load` (typically fetching the fresh row).
+ * If `load` fails, the lock is released again and the error is rethrown, so a failed load can never
+ * leave a lock that the heartbeat keeps alive. Errors from `acquire()` (EditLockError,
+ * EditLockCancelledError, ...) propagate unchanged. If the lock was released or replaced while
+ * loading (e.g. another entry was opened or the component unmounted), EditLockCancelledError is thrown.
+ */
+export async function openWithLock<T>(editLock: EditLockHandle, entityId: string | number, load: () => Promise<T>): Promise<T> {
+  await editLock.acquire(entityId);
+  let result: T;
+  try {
+    result = await load();
+  } catch (error) {
+    void editLock.release(entityId);
+    throw error;
+  }
+  if (!editLock.isHeld(entityId)) throw new EditLockCancelledError();
+  return result;
 }

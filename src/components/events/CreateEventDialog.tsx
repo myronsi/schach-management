@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import { apiUrl } from '@/lib/api';
 import { postJson } from '@/lib/api-errors';
 import { addMonthsClamped, addMonthsSameWeekday, formatDateForAPI, parseDateString } from '@/lib/date';
 import { useAlertDialog } from '@/hooks/useDialogs';
+import type { Event } from '@/pages/events/eventUtils';
 
 type FormData = {
   title: string;
@@ -29,15 +30,9 @@ type FormData = {
 
 const API = apiUrl('events.php');
 
-interface EventCreatePayload {
-  title: string;
-  date: string;
-  time?: string;
-  location?: string;
-  description?: string;
-  type?: string;
+type EventCreatePayload = Pick<Event, 'title' | 'date' | 'time' | 'location' | 'description' | 'type'> & {
   is_recurring: number;
-}
+};
 
 /** Maximum number of occurrences created for one recurring series (matches the input's max). */
 const MAX_REPEAT_COUNT = 50;
@@ -110,6 +105,12 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
   const [selectedType, setSelectedType] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
+  const closeTimerRef = useRef<number | null>(null);
+
+  // Never let a pending auto-close fire after the dialog content has been unmounted (closed).
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+  }, []);
   const watchTitle = watch("title");
   const watchRepeatType = watch("repeatType");
   const watchRepeatCount = watch("repeatCount");
@@ -192,6 +193,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
   };
 
   const onSubmit = async (data: FormData) => {
+    if (isSubmitting) return;
     if (!isFormValid()) {
       showAlert('Fehler', 'Bitte füllen Sie alle erforderlichen Felder aus', 'error');
       return;
@@ -203,7 +205,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
       if (selectedEndDate) {
         const start = formatDateForAPI(selectedDate as Date);
         const end = formatDateForAPI(selectedEndDate as Date);
-        const payload = {
+        const payload: EventCreatePayload = {
           title: data.title,
           date: `${start}:${end}`,
           time: data.time,
@@ -287,7 +289,9 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
       
       if (onSuccess) onSuccess();
       
-      setTimeout(() => {
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = window.setTimeout(() => {
+        closeTimerRef.current = null;
         if (onClose) onClose();
       }, 1500);
       

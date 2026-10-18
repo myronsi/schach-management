@@ -17,9 +17,10 @@ import AuditMeta from '@/components/AuditMeta';
 import { apiUrl } from '@/lib/api';
 import { ApiError, deleteJson, describeApiError, postJson } from '@/lib/api-errors';
 import { formatDateForAPI, formatDateTimeForAPI, parseDateString, todayLocal } from '@/lib/date';
-import { EditLockCancelledError, EditLockError, useEditLock } from '@/lib/editLock';
+import { EditLockCancelledError, EditLockError, openWithLock, useEditLock } from '@/lib/editLock';
 import { hasFieldChanges } from '@/lib/form';
 import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
+import { usePendingIds } from '@/hooks/usePendingIds';
 
 const API = apiUrl('news.php');
 
@@ -63,6 +64,7 @@ const NewsAdmin: React.FC = () => {
   
   const { showAlert, alertProps } = useAlertDialog();
   const { showConfirm, confirmProps } = useConfirmDialog();
+  const { isPending: isDeleting, runPending } = usePendingIds<number>();
 
   const requiredFieldsFilled = Boolean(
     form.slug && String(form.slug).trim() !== '' &&
@@ -131,8 +133,7 @@ const NewsAdmin: React.FC = () => {
 
   const startEdit = async (item: NewsItem) => {
     try {
-      await editLock.acquire(item.id);
-      const full = await fetchNewsBySlug(item.slug);
+      const full = await openWithLock(editLock, item.id, () => fetchNewsBySlug(item.slug));
       setEditing(full);
       const datePart = full.date ? String(full.date).split(' ')[0] : todayLocal();
       setForm({ ...full, date: datePart });
@@ -145,12 +146,12 @@ const NewsAdmin: React.FC = () => {
         toast({ title: 'Bearbeitung gesperrt', description: err.message, variant: 'destructive' });
         return;
       }
-      void editLock.release();
       toast({ title: 'Fehler', description: 'Konnte News nicht laden' });
     }
   };
 
   const save = () => {
+    if (createUpdate.isPending) return;
     const payload: NewsPayload = { ...form };
     if (editing) {
       payload.id = editing.id;
@@ -171,7 +172,7 @@ const NewsAdmin: React.FC = () => {
     showConfirm(
       'Nachricht löschen',
       `Möchten Sie die Nachricht "${item.title}" wirklich löschen?`,
-      async () => {
+      () => runPending(item.id, async () => {
         try {
           await deleteJson(API, { id: item.id, expected_updated_at: item.updated_at });
           queryClient.invalidateQueries({ queryKey: ['news'] });
@@ -180,7 +181,7 @@ const NewsAdmin: React.FC = () => {
           const { title, description } = describeApiError(err, 'Fehler beim Löschen');
           showAlert(title, description, 'error');
         }
-      }
+      })
     );
   };
 
@@ -240,10 +241,11 @@ const NewsAdmin: React.FC = () => {
                           variant="outline"
                           size="sm"
                           onClick={() => handleDelete(n)}
+                          disabled={isDeleting(n.id)}
                           className="flex items-center justify-center gap-1 text-red-600 hover:text-red-700 w-full sm:w-auto"
                         >
                           <Trash2 className="w-4 h-4" />
-                          <span className="sm:inline">Löschen</span>
+                          <span className="sm:inline">{isDeleting(n.id) ? 'Wird gelöscht...' : 'Löschen'}</span>
                         </Button>
                       </div>
                     </div>
@@ -332,10 +334,10 @@ const NewsAdmin: React.FC = () => {
                 <Button 
                   type="button"
                   onClick={save} 
-                  disabled={saveDisabled}
+                  disabled={saveDisabled || createUpdate.isPending}
                   className="w-full"
                 >
-                  {editing ? 'Speichern' : 'Erstellen'}
+                  {createUpdate.isPending ? (editing ? 'Wird gespeichert...' : 'Wird erstellt...') : (editing ? 'Speichern' : 'Erstellen')}
                 </Button>
               </div>
             </DialogContent>

@@ -35,6 +35,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
   const [originalEvent, setOriginalEvent] = useState<Event | null>(null);
   const [editStartDate, setEditStartDate] = useState<Date | undefined>(undefined);
   const [editEndDate, setEditEndDate] = useState<Date | undefined>(undefined);
+  const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
   
   // Check if current event has date range
@@ -85,10 +86,11 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
   };
 
   const handleSaveEdit = async () => {
-    if (editingId === null) {
+    if (editingId === null || isSaving) {
       return;
     }
 
+    setIsSaving(true);
     try {
       const payload: EventEditPayload = { 
         id: String(editingId),
@@ -115,6 +117,8 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
       console.error('Edit failed', err);
       const { title, description } = describeApiError(err, err instanceof Error ? err.message : 'Konnte Ereignis nicht speichern');
       toast({ title, description, variant: 'destructive' });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -264,9 +268,9 @@ const EventCard: React.FC<EventCardProps> = ({ event, onUpdate, onDelete }) => {
                 onClick={handleSaveEdit} 
                 size="sm" 
                 className="w-full sm:w-auto"
-                disabled={!hasChanges()}
+                disabled={!hasChanges() || isSaving}
               >
-                Speichern
+                {isSaving ? 'Wird gespeichert...' : 'Speichern'}
               </Button>
               <Button onClick={handleCancelEdit} variant="outline" size="sm" className="w-full sm:w-auto">Abbrechen</Button>
             </div>

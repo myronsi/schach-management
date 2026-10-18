@@ -93,9 +93,11 @@ export const jwtUtils = {
         return null;
       }
       
-      const payload = parts[1];
+      // JWT segments are base64url: map back to the standard alphabet, pad, then decode as UTF-8.
+      const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
       const paddedPayload = payload + '='.repeat((4 - payload.length % 4) % 4);
-      const decoded = atob(paddedPayload);
+      const binary = atob(paddedPayload);
+      const decoded = new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0)));
       const parsed: unknown = JSON.parse(decoded);
       return parsed && typeof parsed === 'object' ? (parsed as JwtPayload) : null;
     } catch (error) {
@@ -285,21 +287,10 @@ export const authToken = {
   }
 };
 
-export const httpUtils = {
-  getAuthHeaders(): Record<string, string> {
-    const token = authToken.get();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-    
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-      headers['X-Auth-Token'] = token;
-    }
-    
-    return headers;
-  },
+/** Fired on window when the API rejects the session (HTTP 401); AuthProvider signs the user out. */
+export const AUTH_EXPIRED_EVENT = 'auth:expired';
 
+export const httpUtils = {
   async authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
     const token = authToken.get();
     const headers = new Headers(options.headers);
@@ -310,13 +301,20 @@ export const httpUtils = {
 
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
+      // Fallback for hosts that strip the Authorization header before it reaches PHP.
       headers.set('X-Auth-Token', token);
     }
 
-    return fetch(url, {
+    const response = await fetch(url, {
       ...options,
       headers
     });
+    if (response.status === 401) {
+      // Expired, revoked (password changed, role changed) or missing token: end the session
+      // centrally instead of letting every page show a generic save error.
+      window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT, { detail: { url } }));
+    }
+    return response;
   },
 
   async post(url: string, data: unknown, options: RequestInit = {}): Promise<Response> {
@@ -338,14 +336,6 @@ export const httpUtils = {
     }
 
     return this.authenticatedFetch(url, requestOptions);
-  },
-
-  async put(url: string, data: unknown, options: RequestInit = {}): Promise<Response> {
-    return this.authenticatedFetch(url, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-      ...options
-    });
   },
 
   async patch(url: string, data: unknown, options: RequestInit = {}): Promise<Response> {

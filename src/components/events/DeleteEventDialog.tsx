@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -15,23 +15,13 @@ import { apiUrl } from '@/lib/api';
 import { readJson } from '@/lib/api-errors';
 import { formatDateForAPI } from '@/lib/date';
 import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
+import type { Event } from '@/pages/events/eventUtils';
 
 type FormData = {
   title?: string;
   date?: string;
   deleteMode: string;
 };
-
-interface Event {
-  id: string;
-  title: string;
-  date: string;
-  time?: string;
-  location?: string;
-  description?: string;
-  type?: string;
-  is_recurring?: number;
-}
 
 const API = apiUrl('events.php');
 
@@ -50,10 +40,9 @@ interface DeleteRequestBody {
 
 const deleteModeOptions = [
   { value: "upcomingTitle", label: "Alle zukünftigen Ereignisse mit Titel" },
-  { value: "allOnDay", label: "Alle Ereignisse an einem Tag" }
+  { value: "allOnDay", label: "Alle Ereignisse an einem Tag" },
+  { value: 'range', label: 'Ereignisse in einem Zeitraum' },
 ];
- 
-deleteModeOptions.push({ value: 'range', label: 'Ereignisse in einem Zeitraum' });
 
 interface DeleteEventDialogProps {
   onSuccess?: () => void;
@@ -77,7 +66,12 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
   const [selectedStartDate, setSelectedStartDate] = useState<Date | undefined>(undefined);
   const [selectedEndDate, setSelectedEndDate] = useState<Date | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+  const closeTimerRef = useRef<number | null>(null);
+
+  // Never let a pending auto-close fire after the dialog content has been unmounted (closed).
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+  }, []);
   
   const { showAlert, alertProps } = useAlertDialog();
   const { showConfirm, confirmProps } = useConfirmDialog();
@@ -87,6 +81,11 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
   const needsTitle = watchDeleteMode === "upcomingTitle";
   const needsDate = watchDeleteMode === "allOnDay";
   const needsRange = watchDeleteMode === 'range';
+  // Compare the calendar days (yyyy-MM-dd strings sort chronologically).
+  const rangeInvalid = Boolean(
+    needsRange && selectedStartDate && selectedEndDate &&
+    formatDateForAPI(selectedStartDate) > formatDateForAPI(selectedEndDate)
+  );
 
   useEffect(() => {
     const loadEvents = async () => {
@@ -143,6 +142,7 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
   };
 
   const onSubmit = async (data: FormData) => {
+    if (isSubmitting || rangeInvalid) return;
     const dateValue = selectedDate ? formatDateForAPI(selectedDate) : data.date;
     const formData = {
       ...data,
@@ -191,7 +191,9 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
             
             if (onSuccess) onSuccess();
             
-            setTimeout(() => {
+            if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = window.setTimeout(() => {
+              closeTimerRef.current = null;
               if (onClose) onClose();
             }, 1500);
             
@@ -317,6 +319,11 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
             onChange={handleEndDateChange}
             required
           />
+          {rangeInvalid && (
+            <p className="text-sm text-red-600 sm:col-span-2">
+              Das Enddatum darf nicht vor dem Startdatum liegen.
+            </p>
+          )}
         </div>
       )}
 
@@ -334,6 +341,7 @@ const DeleteEventDialog: React.FC<DeleteEventDialogProps> = ({ onSuccess, onClos
             (needsTitle && !selectedTitle) ||
             (needsDate && !selectedDate) ||
             (needsRange && (!selectedStartDate || !selectedEndDate)) ||
+            rangeInvalid ||
             isSubmitting
           }
         >

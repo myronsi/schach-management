@@ -11,9 +11,11 @@ interface MediaCardProps {
   media: MediaItem;
   onEdit: (item: MediaItem) => void;
   onDelete: (item: MediaItem) => void;
+  /** True while a delete request for this item is running. */
+  deleting?: boolean;
 }
 
-export const MediaCard: React.FC<MediaCardProps> = ({ media, onEdit, onDelete }) => {
+export const MediaCard: React.FC<MediaCardProps> = ({ media, onEdit, onDelete, deleting = false }) => {
   const childrenArray = parseChildren(media.children);
   const displaySrc = buildFullSrc(media.src, BASE_URL);
 
@@ -67,10 +69,11 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onEdit, onDelete })
               variant="outline"
               size="sm"
               onClick={() => onDelete(media)}
+              disabled={deleting}
               className="flex items-center justify-center gap-1 text-red-600 hover:text-red-700 w-full sm:w-auto"
             >
               <Trash2 className="w-4 h-4" />
-              <span className="sm:inline">Löschen</span>
+              <span className="sm:inline">{deleting ? 'Wird gelöscht...' : 'Löschen'}</span>
             </Button>
           </div>
         </div>
