@@ -27,12 +27,6 @@ export const buildFullSrc = (src: string, baseUrl: string): string => {
   }
 };
 
-/**
- * Converts a full URL back into the site-relative path stored in the database (e.g. "photos/a/b.jpg").
- * Only URLs on the site itself (same origin, below the site base path, pointing into "photos/") are
- * shortened; any other absolute URL - e.g. an external image - is kept unchanged, so that
- * buildFullSrc(stripBaseUrl(url)) always yields the original URL again.
- */
 export const stripBaseUrl = (src: string, baseUrl: string): string => {
   const trimmedSrc = src.trim();
 
@@ -40,7 +34,6 @@ export const stripBaseUrl = (src: string, baseUrl: string): string => {
     return trimmedSrc;
   }
 
-  // baseUrl is the site root including scheme, host and trailing slash, so a prefix match means same origin.
   if (trimmedSrc.startsWith(baseUrl)) {
     const relative = trimmedSrc.substring(baseUrl.length);
     return relative.startsWith('photos/') ? relative : trimmedSrc;

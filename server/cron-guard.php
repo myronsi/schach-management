@@ -1,9 +1,4 @@
 <?php
-/**
- * Restricts the e-mail cron scripts to the command line, or to HTTP calls that pass the cron_key
- * (set in server/.env) as "X-Cron-Key" header - preferred, it does not end up in access logs -
- * or as ?key=<cron_key>. Without cron_key only CLI works.
- */
 
 require_once __DIR__ . '/common.php';
 
@@ -19,15 +14,11 @@ if (PHP_SAPI !== 'cli') {
     header('Content-Type: text/plain; charset=utf-8');
 }
 
-/**
- * Ensures only one run of the calling cron script at a time; a second, overlapping run exits.
- * The lock is released automatically when the process ends.
- */
 function acquireCronLock(string $name): void {
     static $handles = [];
     $file = rtrim(sys_get_temp_dir(), '/\\') . '/schach-cron-' . $name . '.lock';
     $fh = @fopen($file, 'c');
-    if (!$fh) return; // cannot lock (e.g. read-only temp dir): run unguarded as before
+    if (!$fh) return;
     if (!flock($fh, LOCK_EX | LOCK_NB)) {
         echo "Another run of $name is still in progress\n";
         exit;
@@ -35,7 +26,6 @@ function acquireCronLock(string $name): void {
     $handles[$name] = $fh;
 }
 
-/** Encodes a header value (subject) as UTF-8 and strips line breaks to prevent header injection. */
 function encodeMailHeader(string $value): string {
     $value = trim(preg_replace('/[\r\n]+/', ' ', $value));
     return '=?UTF-8?B?' . base64_encode($value) . '?=';

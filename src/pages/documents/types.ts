@@ -19,5 +19,4 @@ export interface UploadedFile {
   category: string;
 }
 
-/** Editable document fields used by the wizard and the save hook. */
 export type DocumentForm = Partial<DocumentItem>;

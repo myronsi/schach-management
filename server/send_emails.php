@@ -2,9 +2,7 @@
 
 require_once __DIR__ . '/cron-guard.php';
 
-// "failed" counts delivery attempts; a mail is retried on later runs until MAX_SEND_ATTEMPTS.
 const MAX_SEND_ATTEMPTS = 3;
-// Reminders are only useful shortly after queueing; never send stale ones (also skips old failures).
 const MAX_QUEUE_AGE_HOURS = 24;
 
 acquireCronLock('send_emails');

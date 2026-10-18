@@ -31,8 +31,6 @@
   }
 
   * {
-   /* outline: 2px solid rgba(255, 0, 0, 0.5) !important;
-    box-shadow: 0 0 0 2px rgba(0, 255, 0, 0.5) !important; */
     @apply border-border;
   }
 
@@ -95,7 +93,6 @@ body {
   animation: fadeInOut 3s ease-in-out forwards;
 }
 
-/* Rich Text Editor List Styles */
 [contenteditable="true"] ol,
 [contenteditable="true"] ul {
   padding-left: 2rem;

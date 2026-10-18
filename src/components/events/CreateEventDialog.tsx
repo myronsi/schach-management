@@ -34,7 +34,6 @@ type EventCreatePayload = Pick<Event, 'title' | 'date' | 'time' | 'location' | '
   is_recurring: number;
 };
 
-/** Maximum number of occurrences created for one recurring series (matches the input's max). */
 const MAX_REPEAT_COUNT = 50;
 
 interface CreateEventDialogProps {
@@ -107,7 +106,6 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
   const closeTimerRef = useRef<number | null>(null);
 
-  // Never let a pending auto-close fire after the dialog content has been unmounted (closed).
   useEffect(() => () => {
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
   }, []);
@@ -176,9 +174,7 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
   const handleEndDateChange = (date: Date | undefined) => {
     setSelectedEndDate(date);
     if (date) {
-      // not writing into form 'date' field; we send range when submitting
       setValue('date', `${formatDateForAPI(selectedDate || new Date())}:${formatDateForAPI(date)}`);
-      // Clear time and recurring when end date is set
       setValue('time', '');
       setValue('is_recurring', false);
       setIsRecurring(false);
@@ -253,15 +249,12 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
                 occurrence = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + i * 7);
                 break;
               case "monthly":
-                // Same weekday occurrence each month, e.g. every 2nd Tuesday.
                 occurrence = addMonthsSameWeekday(startDate, i);
                 break;
               case "monthly_date":
-                // Same day of month; clamped to the month's last day (31 Jan -> 28/29 Feb).
                 occurrence = addMonthsClamped(startDate, i);
                 break;
               case "yearly":
-                // Clamped as well, so 29 Feb -> 28 Feb in non-leap years.
                 occurrence = addMonthsClamped(startDate, i * 12);
                 break;
               default:
@@ -275,7 +268,6 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
           }
         }
 
-        // One request for the whole series: the server creates all events in one transaction (all-or-nothing).
         await postJson(
           `${API}?action=create`,
           data.repeatType && data.repeatType !== 'none' ? eventsToCreate : eventsToCreate[0],
@@ -489,7 +481,6 @@ const CreateEventDialog: React.FC<CreateEventDialogProps> = ({ onSuccess, onClos
         </Button>
       </form>
       
-      {/* Alert Dialog */}
       <AlertMessage {...alertProps} />
     </div>
   );

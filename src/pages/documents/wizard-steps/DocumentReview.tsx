@@ -30,7 +30,6 @@ export const DocumentReview: React.FC<DocumentReviewProps> = ({
         </div>
       </div>
 
-      {/* Summary Card */}
       <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
         <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
           <Info className="w-5 h-5 text-gray-600" />
@@ -79,7 +78,6 @@ export const DocumentReview: React.FC<DocumentReviewProps> = ({
         </div>
       </div>
 
-      {/* Optional Fields */}
       <div className="space-y-4">
         <h4 className="font-semibold text-gray-900 flex items-center gap-2">
           <Edit className="w-5 h-5 text-gray-600" />
@@ -132,7 +130,6 @@ export const DocumentReview: React.FC<DocumentReviewProps> = ({
         </div>
       </div>
 
-      {/* Final Check */}
       <div className="bg-green-50 border border-green-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />

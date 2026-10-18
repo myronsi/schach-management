@@ -118,7 +118,6 @@ const FastInfoAdmin: React.FC = () => {
       payload.id = editing.id;
       if (editing.updated_at) payload.expected_updated_at = editing.updated_at;
     } else {
-      // New entries get their id from the server.
       delete payload.id;
     }
     

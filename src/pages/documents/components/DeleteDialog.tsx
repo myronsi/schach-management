@@ -10,7 +10,6 @@ interface DeleteDialogProps {
   onClose: () => void;
   onDeactivate: (item: DocumentItem) => void;
   onHardDelete: (item: DocumentItem) => void;
-  /** True while a deactivate/delete request is running; disables both actions. */
   busy?: boolean;
 }
 

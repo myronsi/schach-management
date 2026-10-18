@@ -21,7 +21,6 @@ import { useAlertDialog, useConfirmDialog } from '@/hooks/useDialogs';
 import { usePendingIds } from '@/hooks/usePendingIds';
 
 const API = apiUrl('teams.php');
-/** The team page description is stored as the special row with id 0. */
 const TEAM_DESCRIPTION_ID = 0;
 
 interface TeamItem {
@@ -56,7 +55,6 @@ const fetchTeams = async (): Promise<TeamItem[]> => {
   return res.json();
 };
 
-/** Fresh description row for editing; null if it does not exist yet (it is created on first save). */
 const fetchDescription = async (): Promise<TeamDescription | null> => {
   const res = await fetch(`${API}?id=${TEAM_DESCRIPTION_ID}`);
   if (res.status === 404) return null;
@@ -82,7 +80,6 @@ const TeamsAdmin: React.FC = () => {
   const [form, setForm] = useState<Partial<TeamItem>>({});
   
   const [descForm, setDescForm] = useState<TeamDescription>({ id: 0, name: '', text: '' });
-  // Fresh copy of the description row loaded when editing started (null if it does not exist yet).
   const [descOriginal, setDescOriginal] = useState<TeamDescription | null>(null);
   
   const [recordW, setRecordW] = useState<number>(0);
@@ -105,7 +102,6 @@ const TeamsAdmin: React.FC = () => {
     if (!editing) return true;
     if (hasFieldChanges(form, editing, TEAM_FIELDS)) return true;
     
-    // Check if squadPlayers has changed
     try {
       const originalSquad = JSON.parse(editing.squad || '[]');
       if (!Array.isArray(originalSquad) || originalSquad.length !== squadPlayers.length) {
@@ -117,11 +113,9 @@ const TeamsAdmin: React.FC = () => {
         }
       }
     } catch {
-      // If parsing fails, consider it changed if squadPlayers is not empty
       if (squadPlayers.length > 0) return true;
     }
     
-    // Check if record has changed
     try {
       const originalRecord = JSON.parse(editing.record || '{}');
       if ((originalRecord.w || 0) !== (recordW || 0) ||
@@ -130,7 +124,6 @@ const TeamsAdmin: React.FC = () => {
         return true;
       }
     } catch {
-      // If parsing fails, consider it changed if any record value is non-zero
       if (recordW !== 0 || recordD !== 0 || recordL !== 0) return true;
     }
     
@@ -176,7 +169,6 @@ const TeamsAdmin: React.FC = () => {
 
   const startEditDescription = async () => {
     try {
-      // Always edit the current row (loaded after acquiring the lock), never cached data.
       const fresh = await openWithLock(editLock, TEAM_DESCRIPTION_ID, fetchDescription);
       setDescOriginal(fresh);
       setDescForm(fresh ? { ...fresh } : { id: TEAM_DESCRIPTION_ID, name: 'Mannschaften Beschreibung', text: '' });
@@ -197,7 +189,6 @@ const TeamsAdmin: React.FC = () => {
 
   const saveDescription = () => {
     if (updateDescription.isPending) return;
-    // The description is the special row with id 0, which is always sent explicitly.
     const payload: TeamDescriptionPayload = { ...descForm, id: TEAM_DESCRIPTION_ID };
     if (descOriginal?.updated_at) payload.expected_updated_at = descOriginal.updated_at;
     updateDescription.mutate(payload);
@@ -256,7 +247,6 @@ const TeamsAdmin: React.FC = () => {
       payload.id = editing.id;
       if (editing.updated_at) payload.expected_updated_at = editing.updated_at;
     } else {
-      // New entries get their id from the server.
       delete payload.id;
     }
     

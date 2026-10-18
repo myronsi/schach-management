@@ -34,7 +34,6 @@ const MediaAdmin: React.FC = () => {
   const { showAlert, alertProps } = useAlertDialog();
   const { showConfirm, confirmProps } = useConfirmDialog();
   const { isPending: isDeleting, runPending } = usePendingIds<number>();
-  
 
   const mediaForm = useMediaForm();
 
@@ -116,7 +115,6 @@ const MediaAdmin: React.FC = () => {
     const payload: MediaPayload = {
       ...mediaForm.form,
       src: internalSrc,
-      // The wizard has no field for the gallery description; send the loaded value so saving keeps it.
       description: mediaForm.form.description ?? '',
       children: JSON.stringify(processedChildren)
     };
@@ -125,7 +123,6 @@ const MediaAdmin: React.FC = () => {
       payload.id = editing.id;
       if (editing.updated_at) payload.expected_updated_at = editing.updated_at;
     } else {
-      // New entries get their id from the server.
       delete payload.id;
     }
     

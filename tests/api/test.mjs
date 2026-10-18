@@ -1,5 +1,3 @@
-// Run via tests/api/run.sh - uses synthetic data in throwaway containers only.
-// Integration tests for the hardened PHP API (local containers only).
 const BASE = 'http://localhost:8099/api';
 const ORIGIN = 'http://localhost:8099';
 let failures = 0;
@@ -7,7 +5,6 @@ const check = (name, cond, extra = '') => {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${cond ? '' : '  ' + extra}`);
   if (!cond) failures++;
 };
-// Random throwaway password for requests that must be rejected (never stored, never reused).
 const { randomBytes } = await import('node:crypto');
 const throwawayPassword = () => `tmp-${randomBytes(9).toString('base64url')}`;
 
@@ -23,7 +20,6 @@ async function call(path, { method = 'GET', body, token, origin = ORIGIN, header
 }
 const login = async (username, password) => (await call('auth.php', { method: 'POST', body: { username, password } })).json;
 
-// ---- auth.php
 let r = await call('auth.php?debug=headers', { method: 'POST', body: { password: 'x' } });
 check('debug endpoint removed', !r.text.includes('all_headers'), r.text);
 const chairTok = (await login('chair', 'chairpass1')).token;
@@ -41,7 +37,6 @@ check('login rate limited after failures', r.status === 429, r.status + ' ' + r.
 r = await call('auth.php', { method: 'POST', body: { action: 'validate' }, token: adminTok });
 check('validate works', r.json?.success === true, r.text);
 
-// set_password
 const newbie = await login('newbie', 'temppass1');
 check('forced change flag', newbie.must_change_password === true);
 r = await call('auth.php', { method: 'POST', body: { action: 'set_password', token: newbie.token, new_password: 'brandnewpass' } });
@@ -57,7 +52,6 @@ check('password change revokes older tokens', r.json?.success === false, r.text)
 r = await call('auth.php', { method: 'POST', body: { action: 'validate' }, token: newbieFreshTok });
 check('token returned by set_password is valid', r.json?.success === true, r.text);
 
-// ---- forged / default secret tokens
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const { createHmac } = await import('node:crypto');
 const forge = (secret) => {
@@ -71,13 +65,11 @@ const testJwtSecret = /^jwt_secret=(.*)$/m.exec(readFileSync(new URL('./test.env
 r = await call('news.php', { method: 'POST', body: { slug: 'x', title: 'x' }, token: forge(testJwtSecret) });
 check('legacy token without password fingerprint rejected', r.status === 401, r.status + r.text);
 
-// ---- CORS
 r = await call('news.php', { origin: 'https://evil.example' });
 check('CORS not reflected for foreign origin', r.headers.get('access-control-allow-origin') === null);
 r = await call('news.php');
 check('CORS reflected for allowed origin', r.headers.get('access-control-allow-origin') === ORIGIN);
 
-// ---- authm.php role rules
 r = await call('authm.php', { method: 'POST', token: adminTok, body: { username: 'chair', password: 'hijacked123', status: 'chairman', is_update: true } });
 check('admin cannot reset chairman password', r.status === 403, r.status + r.text);
 r = await call('authm.php', { method: 'POST', token: adminTok, body: { username: 'chair', status: 'user', is_update: true } });
@@ -106,8 +98,7 @@ check('member cannot list users', r.status === 403, r.status + '');
 r = await call('authm.php', { method: 'POST', token: chairTok, body: { username: 'admin2', status: 'user', password_status: 'changed', is_update: true } });
 check('chairman can demote admin', r.json?.success === true, r.text);
 
-// demoted user's old token immediately loses access (DB status check)
-const admin2TokBefore = adminTok; // admin1 still admin
+const admin2TokBefore = adminTok;
 r = await call('news.php', { method: 'POST', body: { slug: 'x1', title: 'x' }, token: admin2TokBefore });
 check('admin still works', r.json?.success === true, r.text);
 await call('authm.php', { method: 'POST', token: chairTok, body: { username: 'admin1', status: 'user', password_status: 'changed', is_update: true } });
@@ -116,7 +107,6 @@ check('demoted admin token rejected immediately', r.status === 401 || r.status =
 await call('authm.php', { method: 'POST', token: chairTok, body: { username: 'admin1', status: 'admin', password_status: 'changed', is_update: true } });
 const admin1Tok = (await login('admin1', 'adminpass1')).token;
 
-// ---- events auth bypass
 r = await call('events.php?action=editByTitle', { method: 'POST', body: { title: 'Training', updates: { location: 'pwned' } } });
 check('editByTitle requires auth', r.status === 401, r.status + r.text);
 r = await call('events.php?action=somethingNew', { method: 'POST', body: {} });
@@ -140,7 +130,6 @@ check('editByTitle range includes multi-day event starting on end date', r.json?
 r = await call('events.php?action=editByTitle', { method: 'POST', token: admin1Tok, body: { title: 'B', start_date: 'gestern', updates: { location: 'Saal' } } });
 check('editByTitle validates dates', r.status === 400, r.status + r.text);
 
-// ---- path traversal
 r = await call('documents.php?action=scan&path=../');
 check('scan requires auth', r.status === 401, r.status + '');
 r = await call('documents.php?action=scan&path=../', { token: admin1Tok });
@@ -165,7 +154,6 @@ fd.append('file', new Blob(['jpgdata']), 'bild.jpg');
 r = await call('media.php', { method: 'POST', body: fd, token: admin1Tok });
 check('jpg upload works', r.json?.uploaded_count === 1, r.text);
 
-// ---- creates: server-assigned ids, no overwrite
 r = await call('news.php', { method: 'POST', token: admin1Tok, body: { slug: 'neu', title: 'Neu', content: '<p>ok</p><script>alert(1)</script><img src=x onerror=alert(1)><a href="javascript:alert(1)">l</a><a href="https://x.de" target="_blank">ok</a>' } });
 const newsId = r.json?.id;
 check('news create gets server id', newsId > 2, r.text);
@@ -189,7 +177,6 @@ r = await call('teams.php', { method: 'POST', token: admin1Tok, body: { id: 0, n
 r = await call('teams.php?id=0');
 check('team description sanitised', r.json?.text === '<p>hi</p>', r.text);
 
-// ---- edit locks enforced server-side
 const chairTok2 = chairTok;
 r = await call('edit-lock.php', { method: 'POST', token: chairTok2, body: { action: 'acquire', entity: 'news', entity_id: '1' } });
 check('chairman acquires lock', r.json?.success === true, r.text);
@@ -200,7 +187,6 @@ r = await call('news.php', { method: 'DELETE', token: admin1Tok, body: { id: 1 }
 check('delete blocked by other user lock', r.status === 423, r.status + r.text);
 r = await call('news.php', { method: 'POST', token: chairTok2, body: { id: 1, slug: 'erste', title: 'Mine' } });
 check('lock holder can save', r.json?.success === true, r.text);
-// beacon-style release: token in body, text/plain
 const res = await fetch(`${BASE}/edit-lock.php`, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8', Origin: ORIGIN }, body: JSON.stringify({ action: 'release', entity: 'news', entity_id: '1', lock_token: lockToken, token: chairTok2 }) });
 check('beacon release accepted', res.status === 200, String(res.status));
 r = await call('news.php', { method: 'POST', token: admin1Tok, body: { id: 1, slug: 'erste', title: 'After release' } });
@@ -208,12 +194,10 @@ check('save works after release', r.json?.success === true, r.text);
 r = await call('edit-lock.php', { method: 'POST', token: admin1Tok, body: { action: 'acquire', entity: 'users', entity_id: '1' } });
 check('lock on unknown entity rejected', r.status === 400, r.status + r.text);
 
-// ---- optimistic conflict
 r = await call('news.php?slug=erste');
 r = await call('news.php', { method: 'POST', token: admin1Tok, body: { id: 1, slug: 'erste', title: 'x', expected_updated_at: '2000-01-01 00:00:00' } });
 check('stale expected_updated_at -> 409 conflict', r.status === 409 && r.json?.conflict === true, r.text);
 
-// ---- membership
 const sig = 'data:image/png;base64,' + Buffer.from('png').toString('base64');
 const app = { first_name: 'A', last_name: 'B', address: 'S 1', postal_city: '1 X', birth_date: '2000-01-01', email: 'a@b.de', nationality: 'Deutsch', gender: 'männlich', membership_type: 'Aktivmitglied', application_place: 'L', application_date: '2026-10-16', signature: sig, signed_at: new Date().toISOString() };
 r = await call('membership-applications.php', { method: 'POST', body: { ...app, birth_date: 'gestern' } });
@@ -246,13 +230,11 @@ check('chairman deletes application', r.json?.success === true, r.text);
 r = await call('membership-applications.php', { token: chairTok });
 check('deleted application is gone', Array.isArray(r.json) && r.json.length === appCount - 1 && !r.json.some((a) => a.id === appId), r.text.slice(0, 100));
 
-// ---- user profile
 r = await call('user_profile.php', { method: 'PUT', token: memberTok, body: { email: 'm@x.de', notify_events: 1 } });
 check('profile update works', r.json?.success === true, r.text);
 r = await call('user_profile.php', { token: memberTok });
 check('profile read works', r.json?.email === 'm@x.de', r.text);
 
-// ---- cron scripts not public
 r = await call('send_emails.php');
 check('send_emails forbidden without key', r.status === 403, r.status + r.text);
 r = await call('queue_tomorrow_events.php?key=wrong');
@@ -262,7 +244,6 @@ check('queue works with key', r.status === 200, r.status + r.text);
 r = await call('send_emails.php', { headers: { 'X-Cron-Key': 'testcronkey' } });
 check('cron key accepted as header', r.status === 200, r.status + r.text);
 
-// ---- date validation
 r = await call('news.php', { method: 'POST', token: admin1Tok, body: { slug: 'datum', title: 'D', date: 'tomorrow' } });
 check('news rejects free-form date', r.status === 400, r.status + r.text);
 r = await call('news.php', { method: 'POST', token: admin1Tok, body: { slug: 'datum', title: 'D', date: '2026-03-04' } });
@@ -272,7 +253,6 @@ check('history rejects invalid date', r.status === 400, r.status + r.text);
 r = await call('history.php', { method: 'POST', token: admin1Tok, body: { date: '1950.03.12-04.01', text: 'x' } });
 check('history accepts date range format', r.json?.success === true, r.text);
 
-// ---- errors do not leak internals
 r = await call('events.php?action=edit', { method: 'POST', token: admin1Tok, body: { id: 1, updates: { nonsense: 1 } } });
 check('no SQL/exception text in responses', !/SQLSTATE|PDO|\/var\/www/.test(r.text), r.text);
 

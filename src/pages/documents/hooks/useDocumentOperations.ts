@@ -53,7 +53,6 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
     }
   });
 
-  /** Saves the form. `editing` is the document being edited, or null when creating a new one. */
   const save = (editing: { id: number; updated_at?: string } | null) => {
     if (createUpdate.isPending) return;
     const payload: DocumentPayload = { ...form };
@@ -62,7 +61,6 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
       const expected = editing.updated_at ?? form.updated_at;
       if (expected) payload.expected_updated_at = expected;
     } else {
-      // New documents get their id from the server.
       delete payload.id;
     }
 
@@ -156,7 +154,6 @@ export const useDocumentOperations = (onSuccessCallback?: () => void) => {
 
     setScanning(true);
     try {
-      // Scanning requires authentication.
       const res = await httpUtils.authenticatedFetch(`${API}?action=scan&path=${encodeURIComponent(scanPath)}`);
       const data = await readJson<ScanResponse>(res);
 

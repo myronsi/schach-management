@@ -62,7 +62,6 @@ export const uploadFiles = async (title: string, files: FileList) => {
   return data;
 };
 
-/** Lists files already present in the gallery folder. Requires authentication. */
 export const scanDirectory = async (title: string) => {
   const res = await httpUtils.authenticatedFetch(`${API}?action=scan&title=${encodeURIComponent(title)}`);
   const data = await readJson<ScanResponse>(res);

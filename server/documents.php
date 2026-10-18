@@ -19,7 +19,6 @@ if ($method !== 'GET' || $action === 'scan') {
     $user = requireEditor();
 }
 
-/** Document file paths must be an http(s) URL or a root-relative path (usually /docs/...). */
 function validDocumentPath(string $filepath): bool {
     if (preg_match('#^https?://#i', $filepath)) return sanitizeUrl($filepath) !== '';
     if (!str_starts_with($filepath, '/') || str_starts_with($filepath, '//')) return false;
@@ -27,7 +26,6 @@ function validDocumentPath(string $filepath): bool {
     return !in_array('..', explode('/', $filepath), true);
 }
 
-/** Collects the updatable fields present in $data. */
 function documentUpdateFields(array $data): array {
     $fields = [];
     foreach (['name', 'filename', 'category', 'description'] as $key) {
@@ -181,7 +179,6 @@ if ($method === 'DELETE') {
         $stmt->execute([$id]);
         $fileRemoved = false;
         if ($stmt->rowCount()) {
-            // Only delete the file when no other document still references it.
             $refs = $pdo->prepare('SELECT COUNT(*) FROM documents WHERE filepath = ?');
             $refs->execute([$before['filepath'] ?? '']);
             if ((int)$refs->fetchColumn() === 0) {

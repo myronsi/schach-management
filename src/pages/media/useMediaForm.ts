@@ -113,7 +113,6 @@ export const useMediaForm = () => {
             description: undefined
           }));
           
-          // Functional updates: the user may have edited the form or the list while the upload was running.
           setChildrenList(prev => [...prev, ...newChildren]);
 
           const firstSrc = BASE_URL + 'photos/' + data.files[0];

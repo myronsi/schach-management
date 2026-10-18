@@ -93,7 +93,6 @@ export const jwtUtils = {
         return null;
       }
       
-      // JWT segments are base64url: map back to the standard alphabet, pad, then decode as UTF-8.
       const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
       const paddedPayload = payload + '='.repeat((4 - payload.length % 4) % 4);
       const binary = atob(paddedPayload);
@@ -152,26 +151,18 @@ export interface TokenRenewalResult {
   success: boolean;
   message: string;
   token?: string;
-  /**
-   * true only if the server explicitly rejected the token (or it is missing/expired locally).
-   * Network errors and 5xx responses leave this false so the session is kept and retried later.
-   */
   invalid?: boolean;
 }
 
 const LEGACY_COOKIE_NAME = 'auth_token';
 
-/**
- * Older versions mirrored the JWT into a JS-readable cookie that the server never read.
- * Remove any such leftover cookie once when this module loads.
- */
 function removeLegacyCookie(): void {
   try {
     if (typeof document !== 'undefined' && cookieUtils.exists(LEGACY_COOKIE_NAME)) {
       cookieUtils.remove(LEGACY_COOKIE_NAME);
     }
   } catch {
-    // ignore: cookies may be unavailable (e.g. privacy mode)
+    return;
   }
 }
 
@@ -199,8 +190,8 @@ export const authToken = {
   remove(): void {
     try {
       localStorage.removeItem(this.STORAGE_KEY);
-    } catch {
-      // storage unavailable – nothing to remove
+    } catch (error) {
+      console.warn('Could not remove auth token', error);
     }
     removeLegacyCookie();
   },
@@ -264,16 +255,10 @@ export const authToken = {
       return { success: true, message: data.message || '', token: data.token };
     }
 
-    // Explicit rejection: OK response with success:false, or 401/403.
     const invalid = (response.ok && data.success === false) || response.status === 401 || response.status === 403;
     return { success: false, message: data.message || 'Token renewal failed', invalid };
   },
 
-  /**
-   * Renews the token if it is close to expiry.
-   * Returns false only if the session is definitively invalid (expired locally or rejected by the server);
-   * transient failures (network, 5xx) return true so the caller keeps the session and retries later.
-   */
   async autoRenew(): Promise<boolean> {
     const token = this.get();
     if (!token || jwtUtils.isExpired(token)) {
@@ -287,7 +272,6 @@ export const authToken = {
   }
 };
 
-/** Fired on window when the API rejects the session (HTTP 401); AuthProvider signs the user out. */
 export const AUTH_EXPIRED_EVENT = 'auth:expired';
 
 export const httpUtils = {
@@ -301,7 +285,6 @@ export const httpUtils = {
 
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
-      // Fallback for hosts that strip the Authorization header before it reaches PHP.
       headers.set('X-Auth-Token', token);
     }
 
@@ -310,8 +293,6 @@ export const httpUtils = {
       headers
     });
     if (response.status === 401) {
-      // Expired, revoked (password changed, role changed) or missing token: end the session
-      // centrally instead of letting every page show a generic save error.
       window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT, { detail: { url } }));
     }
     return response;

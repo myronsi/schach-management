@@ -49,10 +49,6 @@ interface EditEventDialogProps {
 
 const startDay = (event: Event) => event.date.split(':')[0];
 
-/**
- * The event whose values pre-fill the form: the next upcoming one with this title, or else the
- * most recent past one. (The list is sorted by date ascending, so "first match" would be the oldest.)
- */
 const referenceEvent = (events: Event[], title: string): Event | undefined => {
   const today = todayLocal();
   const matching = events.filter(event => event.title === title && event.date);
@@ -70,7 +66,6 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
   const [selectedType, setSelectedType] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
-  // Only fields the user actually touched are sent; untouched fields keep each event's own value.
   const [changedFields, setChangedFields] = useState<Set<EditableField>>(new Set());
   const [selectedStartDate, setSelectedStartDate] = useState<Date | undefined>(undefined);
   const [selectedEndDate, setSelectedEndDate] = useState<Date | undefined>(undefined);
@@ -142,7 +137,6 @@ const EditEventDialog: React.FC<EditEventDialogProps> = ({ onSuccess, onClose })
       if (changedFields.has('is_recurring')) updates.is_recurring = isRecurring ? 1 : 0;
 
       const payload: { title?: string; updates: EventUpdates; start_date?: string; end_date?: string } = { title: data.title, updates: updates };
-      // Without a start date the server applies the change from today on.
       if (selectedStartDate) payload.start_date = formatDateForAPI(selectedStartDate);
       if (selectedEndDate) payload.end_date = formatDateForAPI(selectedEndDate);
 

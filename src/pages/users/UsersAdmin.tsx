@@ -64,8 +64,6 @@ const UsersAdmin: React.FC = () => {
   const { toast } = useToast();
   const { role, username: currentUsername } = useAuth();
   const isChairman = role === 'chairman';
-  // Mirrors the server rules: the chairman may manage everyone; admins only accounts ranked below
-  // them (plus their own record). Nobody may delete their own account or change their own status.
   const isSelf = (user: User) => !!currentUsername && user.username === currentUsername;
   const canEditUser = (user: User) =>
     isChairman || isSelf(user) || (ROLE_RANK[user.status] ?? 0) < (ROLE_RANK[role ?? ''] ?? 0);
@@ -158,13 +156,11 @@ const UsersAdmin: React.FC = () => {
     if (createUpdate.isPending) return;
     const payload: UserPayload = {
       username: form.username,
-      // Your own status cannot be changed (the server rejects it), so always send the stored value.
       status: editing && isSelf(editing) ? editing.status : (form.status || 'user'),
       password_status: toPasswordStatus(form.password_status),
       is_update: !!editing
     };
 
-    // Passwords are sent exactly as typed (the server no longer trims them).
     if (form.password && String(form.password).trim() !== '') {
       payload.password = form.password;
     }

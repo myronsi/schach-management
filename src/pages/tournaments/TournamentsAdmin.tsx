@@ -147,7 +147,6 @@ const TournamentsAdmin: React.FC = () => {
       payload.id = editing.id;
       if (editing.updated_at) payload.expected_updated_at = editing.updated_at;
     } else {
-      // New entries get their id from the server.
       delete payload.id;
     }
     
@@ -189,7 +188,6 @@ const TournamentsAdmin: React.FC = () => {
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Turniere</h1>
             <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-              {/* Filter Dropdown */}
               <Popover open={filterOpen} onOpenChange={setFilterOpen}>
                 <PopoverTrigger asChild>
                   <Button

@@ -42,7 +42,6 @@ interface MediaWizardProps {
   onImportSingleFile: (filePath: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
-  /** True while the save request is running; disables the submit button. */
   submitting?: boolean;
 }
 
@@ -91,7 +90,6 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
     onCancel();
   };
 
-  // Start at the first step again whenever the dialog is closed (also after a successful save).
   useEffect(() => {
     if (!open) {
       setStep(1);
@@ -439,10 +437,10 @@ export const MediaWizard: React.FC<MediaWizardProps> = ({
               <Button 
                 onClick={() => {
                   if (step === 1 && !form.title?.trim()) {
-                    return; // Don't proceed without title
+                    return;
                   }
                   if (step === 2 && !selectedMethod) {
-                    return; // Don't proceed without selecting method
+                    return;
                   }
                   setStep(step + 1);
                 }}
