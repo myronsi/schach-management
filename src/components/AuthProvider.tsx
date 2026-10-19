@@ -4,7 +4,7 @@ import { authToken, jwtUtils, AUTH_EXPIRED_EVENT } from '@/lib/auth-utils';
 import { apiUrl } from '@/lib/api';
 import { readJson } from '@/lib/api-errors';
 import { AuthContext } from '@/hooks/useAuth';
-import type { LoginResult } from '@/hooks/useAuth';
+import type { LoginResult, AuthContextType } from '@/hooks/useAuth';
 
 const AUTH_API = apiUrl('auth.php');
 const ADMIN_ROLES = ['admin', 'chairman'];
@@ -144,8 +144,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   useEffect(() => { void checkAuthStatus(); }, [checkAuthStatus]);
 
+  const authContextValue: AuthContextType = {
+    isAuthenticated,
+    username,
+    role,
+    mustChangePassword,
+    login,
+    logout,
+    passwordChanged,
+    isAuthChecked,
+    sessionExpiredMessage,
+  };
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, username, role, mustChangePassword, login, logout, isAuthChecked, sessionExpiredMessage, passwordChanged } as any}>
+    <AuthContext.Provider value={authContextValue}>
       {children}
     </AuthContext.Provider>
   );
