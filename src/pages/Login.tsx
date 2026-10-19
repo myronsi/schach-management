@@ -11,11 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Eye, EyeOff, User, Lock } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
-const loginSchema = z.object({
-  username: z.string().min(1, 'Benutzername ist erforderlich'),
-  password: z.string().min(1, 'Passwort ist erforderlich'),
-});
-
+const loginSchema = z.object({ username: z.string().min(1, 'Benutzername ist erforderlich'), password: z.string().min(1, 'Passwort ist erforderlich') });
 type LoginFormData = z.infer<typeof loginSchema>;
 
 const Login: React.FC = () => {
@@ -23,44 +19,24 @@ const Login: React.FC = () => {
   const [loginError, setLoginError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-  const { isAuthenticated, login, sessionExpiredMessage } = useAuth();
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-    reset
-  } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
-  });
+  const { isAuthenticated, mustChangePassword, login, sessionExpiredMessage } = useAuth();
+  const { register, handleSubmit, formState: { errors }, reset } = useForm<LoginFormData>({ resolver: zodResolver(loginSchema) });
 
   useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/dashboard');
-    }
-  }, [isAuthenticated, navigate]);
+    if (isAuthenticated) navigate(mustChangePassword ? '/change-password' : '/dashboard', { replace: true });
+  }, [isAuthenticated, mustChangePassword, navigate]);
 
   const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true);
     setLoginError('');
-
     try {
       const result = await login(data.username, data.password);
       if (result.success) {
         reset();
-        navigate('/dashboard');
-      } else {
-        setLoginError(result.message || 'Ungültiger Benutzername oder Passwort');
-      }
-    } catch {
-      setLoginError('Netzwerkfehler');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const togglePasswordVisibility = () => {
-    setShowPassword(!showPassword);
+        navigate(result.must_change_password ? '/change-password' : '/dashboard', { replace: true });
+      } else setLoginError(result.message || 'Ungültiger Benutzername oder Passwort');
+    } catch { setLoginError('Netzwerkfehler'); }
+    finally { setIsLoading(false); }
   };
 
   return (
@@ -68,75 +44,24 @@ const Login: React.FC = () => {
       <div className="max-w-md w-full space-y-8">
         <Card className="shadow-lg">
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold text-center">
-              Melden Sie sich an
-            </CardTitle>
-            <CardDescription className="text-center">
-              Geben Sie Ihre Zugangsdaten ein, um die Anwendung zu nutzen
-            </CardDescription>
+            <CardTitle className="text-2xl font-bold text-center">Melden Sie sich an</CardTitle>
+            <CardDescription className="text-center">Geben Sie Ihre Zugangsdaten ein, um die Anwendung zu nutzen</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              {loginError && (
-                <Alert variant="destructive">
-                  <AlertDescription>{loginError}</AlertDescription>
-                </Alert>
-              )}
-              {!loginError && sessionExpiredMessage && (
-                <Alert>
-                  <AlertDescription>{sessionExpiredMessage}</AlertDescription>
-                </Alert>
-              )}
-              
+              {loginError && <Alert variant="destructive"><AlertDescription>{loginError}</AlertDescription></Alert>}
+              {!loginError && sessionExpiredMessage && <Alert><AlertDescription>{sessionExpiredMessage}</AlertDescription></Alert>}
               <div className="space-y-2">
                 <Label htmlFor="username">Benutzername</Label>
-                <div className="relative">
-                  <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <Input
-                    id="username"
-                    type="text"
-                    placeholder="Geben Sie Ihren Benutzernamen ein"
-                    className="pl-10"
-                    {...register('username')}
-                  />
-                </div>
-                {errors.username && (
-                  <p className="text-sm text-red-600">{errors.username.message}</p>
-                )}
+                <div className="relative"><User className="absolute left-3 top-3 h-4 w-4 text-gray-400" /><Input id="username" type="text" placeholder="Geben Sie Ihren Benutzernamen ein" className="pl-10" {...register('username')} /></div>
+                {errors.username && <p className="text-sm text-red-600">{errors.username.message}</p>}
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="password">Passwort</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Geben Sie Ihr Passwort ein"
-                    className="pl-10 pr-10"
-                    {...register('password')}
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 flex items-center justify-center text-gray-400 hover:text-gray-600"
-                    onClick={togglePasswordVisibility}
-                    aria-label={showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                {errors.password && (
-                  <p className="text-sm text-red-600">{errors.password.message}</p>
-                )}
+                <div className="relative"><Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" /><Input id="password" type={showPassword ? 'text' : 'password'} placeholder="Geben Sie Ihr Passwort ein" className="pl-10 pr-10" {...register('password')} /><button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center text-gray-400 hover:text-gray-600" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'}>{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div>
+                {errors.password && <p className="text-sm text-red-600">{errors.password.message}</p>}
               </div>
-
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={isLoading}
-              >
-                {isLoading ? 'Anmelden...' : 'Anmelden'}
-              </Button>
+              <Button type="submit" className="w-full" disabled={isLoading}>{isLoading ? 'Anmelden...' : 'Anmelden'}</Button>
             </form>
           </CardContent>
         </Card>
