@@ -5,12 +5,14 @@ export interface LoginResult {
   message?: string;
   status?: string;
   token?: string;
+  must_change_password?: boolean;
 }
 
 export interface AuthContextType {
   isAuthenticated: boolean;
   username: string | null;
   role: string | null;
+  mustChangePassword: boolean;
   login: (username: string, password: string) => Promise<LoginResult>;
   logout: () => Promise<void>;
   isAuthChecked: boolean;
