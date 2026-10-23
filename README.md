@@ -2,7 +2,7 @@
 
 Admin interface for the SC Laufenburg chess club website. Board members (`admin` / `chairman`)
 use it to maintain events, news, club history, teams, tournament results, media galleries,
-quick facts ("Schnellinfo"), documents, user accounts and membership applications.
+quick facts ("Schnellinfo"), documents and user accounts.
 
 ## Structure
 
@@ -109,11 +109,4 @@ failed mails are retried up to 3 times, and mails older than 24 hours are no lon
 
 Tokens are valid for 8 days and are renewed by the admin app while it is open, but a session never
 lasts longer than 30 days after the login. Changing or resetting a password immediately invalidates
-all tokens of that user (use this to sign a user out everywhere). Logging out discards the token in
-the browser only.
-
-## Membership applications
-
-Only the chairman can see applications. The list shows names and status; bank details and signatures
-are loaded per application. Applications can be deleted from the detail view and should be deleted
-once they are no longer needed (data minimisation).
+all tokens of that user (use this to sign a user out everywhere). Logging out discards the token in the browser only.
