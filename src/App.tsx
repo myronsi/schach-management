@@ -15,7 +15,6 @@ import MediaAdmin from "./pages/media/MediaAdmin";
 import FastInfoAdmin from "./pages/fastinfo/FastInfoAdmin";
 import DocumentsAdmin from "./pages/documents/DocumentsAdmin";
 import UsersAdmin from "./pages/users/UsersAdmin";
-import MembershipApplications from "./pages/membership/MembershipApplications";
 import { Toaster } from "./components/ui/toaster";
 import { Calendar, Newspaper, History, Users, Trophy, Image, Zap, UserCog, FileText } from "lucide-react";
 
@@ -41,8 +40,7 @@ const Dashboard = () => {
     { title: 'Media', description: 'Verwalten Sie Medien und Dateien', icon: Image, path: '/media', color: 'bg-pink-50 border-pink-200 hover:bg-pink-100' },
     { title: 'Schnellinfo', description: 'Verwalten Sie Schnellinformationen', icon: Zap, path: '/fastinfo', color: 'bg-cyan-50 border-cyan-200 hover:bg-cyan-100' },
     { title: 'Dokumente', description: 'Verwalten Sie Dokumente und Dateien', icon: FileText, path: '/documents', color: 'bg-teal-50 border-teal-200 hover:bg-teal-100' },
-    ...((role === 'admin' || role === 'chairman') ? [{ title: 'Benutzer', description: 'Verwalten Sie Benutzerkonten', icon: UserCog, path: '/users', color: 'bg-indigo-50 border-indigo-200 hover:bg-indigo-100' }] : []),
-    ...(role === 'chairman' ? [{ title: 'Mitgliedsanträge', description: 'Neue Mitgliedsanträge prüfen und bearbeiten', icon: FileText, path: '/membership-applications', color: 'bg-amber-50 border-amber-200 hover:bg-amber-100' }] : [])
+    ...((role === 'admin' || role === 'chairman') ? [{ title: 'Benutzer', description: 'Verwalten Sie Benutzerkonten', icon: UserCog, path: '/users', color: 'bg-indigo-50 border-indigo-200 hover:bg-indigo-100' }] : [])
   ];
   return (
     <div className="min-h-screen bg-gray-50"><Navbar /><div className="p-4 sm:p-8"><div className="max-w-6xl mx-auto">
@@ -64,7 +62,6 @@ const AppContent = () => <div className="min-h-screen flex flex-col"><Routes>
   <Route path="/fastinfo" element={<ProtectedRoute roles={["admin", "chairman"]}><FastInfoAdmin /></ProtectedRoute>} />
   <Route path="/documents" element={<ProtectedRoute roles={["admin", "chairman"]}><DocumentsAdmin /></ProtectedRoute>} />
   <Route path="/users" element={<ProtectedRoute roles={["admin", "chairman"]}><UsersAdmin /></ProtectedRoute>} />
-  <Route path="/membership-applications" element={<ProtectedRoute roles={["chairman"]}><MembershipApplications /></ProtectedRoute>} />
   <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
   <Route path="/" element={<Navigate to="/dashboard" replace />} />
 </Routes></div>;
