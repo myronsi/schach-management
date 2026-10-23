@@ -52,15 +52,6 @@ CREATE TABLE history (
   id VARCHAR(40) PRIMARY KEY, date VARCHAR(50), text TEXT,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, updated_by VARCHAR(100)
 );
-CREATE TABLE membership_applications (
-  id INT AUTO_INCREMENT PRIMARY KEY, first_name VARCHAR(255), last_name VARCHAR(255), address VARCHAR(255),
-  postal_city VARCHAR(255), birth_date DATE, birth_place VARCHAR(255), phone VARCHAR(255), email VARCHAR(255),
-  nationality VARCHAR(255), gender VARCHAR(20), previous_club VARCHAR(255), membership_type VARCHAR(50),
-  application_place VARCHAR(255), application_date DATE, direct_debit TINYINT(1), bank_name VARCHAR(255),
-  bic VARCHAR(50), iban VARCHAR(50), account_holder VARCHAR(255), signature LONGTEXT, guardian_signature LONGTEXT,
-  debit_signature LONGTEXT, signed_at DATETIME, status VARCHAR(20) DEFAULT 'submitted',
-  submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, decided_at DATETIME NULL, decided_by VARCHAR(100) NULL
-);
 CREATE TABLE email_queue (
   id INT AUTO_INCREMENT PRIMARY KEY, event_id INT, email VARCHAR(255), subject VARCHAR(500), body LONGTEXT,
   created_at DATETIME, is_html TINYINT(1), sent TINYINT(1) DEFAULT 0, sent_at DATETIME NULL,
