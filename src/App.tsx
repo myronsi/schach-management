@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
@@ -17,6 +18,8 @@ import DocumentsAdmin from "./pages/documents/DocumentsAdmin";
 import UsersAdmin from "./pages/users/UsersAdmin";
 import { Toaster } from "./components/ui/toaster";
 import { Calendar, Newspaper, History, Users, Trophy, Image, Zap, UserCog, FileText } from "lucide-react";
+import { httpUtils } from "./lib/auth-utils";
+import { apiUrl } from "./lib/api";
 
 const queryClient = new QueryClient();
 
@@ -31,6 +34,39 @@ const ProtectedRoute = ({ children, roles, allowPasswordChange = false }: { chil
 
 const Dashboard = () => {
   const { username, role } = useAuth();
+  const [displayName, setDisplayName] = useState(username || '');
+
+  useEffect(() => {
+    let active = true;
+
+    const loadDisplayName = async () => {
+      if (!username) {
+        setDisplayName('');
+        return;
+      }
+
+      setDisplayName(username);
+      try {
+        const res = await httpUtils.authenticatedFetch(apiUrl('user_profile.php'));
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!active) return;
+
+        const firstName = typeof data.first_name === 'string' ? data.first_name.trim() : '';
+        const lastName = typeof data.last_name === 'string' ? data.last_name.trim() : '';
+        const name = [firstName, lastName].filter(Boolean).join(' ');
+        setDisplayName(name || username);
+      } catch {
+        // Keep the username as the fallback if the profile cannot be loaded.
+      }
+    };
+
+    void loadDisplayName();
+    return () => {
+      active = false;
+    };
+  }, [username]);
+
   const managementPages = [
     { title: 'Ereignisse', description: 'Verwalten Sie alle Ereignisse und Termine', icon: Calendar, path: '/events', color: 'bg-blue-50 border-blue-200 hover:bg-blue-100' },
     { title: 'Nachrichten', description: 'Verwalten Sie Nachrichten und Ankündigungen', icon: Newspaper, path: '/news', color: 'bg-green-50 border-green-200 hover:bg-green-100' },
@@ -44,7 +80,7 @@ const Dashboard = () => {
   ];
   return (
     <div className="min-h-screen bg-gray-50"><Navbar /><div className="p-4 sm:p-8"><div className="max-w-6xl mx-auto">
-      <div className="bg-white rounded-lg shadow p-4 sm:p-6 mb-6"><h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Willkommen, {username}!</h1><p className="text-gray-600">Wählen Sie einen Bereich aus, um mit der Verwaltung zu beginnen.</p></div>
+      <div className="bg-white rounded-lg shadow p-4 sm:p-6 mb-6"><h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Willkommen, {displayName}!</h1><p className="text-gray-600">Wählen Sie einen Bereich aus, um mit der Verwaltung zu beginnen.</p></div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{managementPages.map((page) => { const Icon = page.icon; return <Link key={page.path} to={page.path}><div className={`${page.color} border-2 rounded-lg p-6 transition-all hover:shadow-md cursor-pointer h-full`}><div className="flex items-start gap-4"><div className="flex-shrink-0"><Icon className="w-8 h-8 text-gray-700" /></div><div className="flex-1"><h3 className="text-lg font-semibold text-gray-900 mb-1">{page.title}</h3><p className="text-sm text-gray-600">{page.description}</p></div></div></div></Link>; })}</div>
     </div></div></div>
   );
